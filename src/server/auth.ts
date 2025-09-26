@@ -1,0 +1,63 @@
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import {
+  type DefaultSession,
+  type NextAuthOptions,
+  getServerSession,
+} from "next-auth";
+import GoogleProvider from "next-auth/providers/google";
+import { prisma } from "~/server/db";
+import { env } from "~/env.js";
+
+/**
+ * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
+ * object and keep type safety.
+ *
+ * @see https://next-auth.js.org/getting-started/typescript#module-augmentation
+ */
+declare module "next-auth" {
+  interface Session extends DefaultSession {
+    user: {
+      id: string;
+    } & DefaultSession["user"];
+  }
+}
+
+export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
+  providers: [
+    GoogleProvider({
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+    }),
+  ],
+  callbacks: {
+    session: ({ session, user }) => ({
+      ...session,
+      user: {
+        ...session.user,
+        id: user.id,
+      },
+    }),
+  },
+  pages: {
+    signIn: "/auth/signin",
+  },
+  session: {
+    strategy: "database",
+  },
+};
+
+/**
+ * Wrapper for `getServerSession` so that you don't need to import the `authOptions` in every file.
+ *
+ * @see https://next-auth.js.org/configuration/nextjs
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const getServerAuthSession = (opts?: { req: any; res: any }) => {
+  if (opts) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+    return getServerSession(opts.req, opts.res, authOptions);
+  }
+  return getServerSession(authOptions);
+};
