@@ -89,16 +89,18 @@ vercel --prod
 
 ## Step 4: Database Migration
 
-After deployment, you need to run database migrations:
+The project is configured to automatically handle database migrations during deployment:
+
+- **Prisma Client Generation**: Automatically runs during the build process
+- **Database Migrations**: Automatically runs after the build completes
+- **No manual intervention required**: Everything is handled by the build scripts
+
+### Manual Migration (if needed):
 
 ```bash
 # Using Vercel CLI
 vercel env pull .env.local
 npx prisma migrate deploy
-
-# Or using Vercel's build command
-# Add this to your package.json scripts:
-"postbuild": "prisma migrate deploy"
 ```
 
 ## Step 5: Google OAuth Setup (Optional)
@@ -129,7 +131,8 @@ The project is already configured with:
 1. **Build Fails**: Check that all environment variables are set
 2. **Database Connection**: Verify DATABASE_URL is correct
 3. **Authentication**: Ensure NEXTAUTH_SECRET is set and NEXTAUTH_URL matches your domain
-4. **Prisma**: Make sure database migrations are run
+4. **Prisma Client Error**: If you see "Module '@prisma/client' has no exported member 'PrismaClient'", the Prisma client needs to be generated. This is now handled automatically in the build process.
+5. **Database Migrations**: Make sure database migrations are run (handled automatically)
 
 ### Useful Commands:
 

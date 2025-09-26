@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build",
+    "build": "prisma generate && next build",
     "postbuild": "prisma migrate deploy",
     "check": "next lint && tsc --noEmit",
     "dev": "next dev --turbo",
