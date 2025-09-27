@@ -73,12 +73,12 @@ export function TableViewLayout({
         {/* Bottom Icons */}
         <div className="mt-auto space-y-2 p-2">
           {/* Help */}
-          <button className="w-full rounded-md p-3 text-gray-600 hover:bg-gray-200 hover:text-gray-900">
+          <button className="w-full rounded-md px-3 py-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900">
             <Image src="/icons/help.svg" alt="Help" width={20} height={20} />
           </button>
 
           {/* Notifications */}
-          <button className="w-full rounded-md p-3 text-gray-600 hover:bg-gray-200 hover:text-gray-900">
+          <button className="w-full rounded-md px-3 py-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900">
             <Image
               src="/icons/bell.svg"
               alt="Notifications"
@@ -88,7 +88,7 @@ export function TableViewLayout({
           </button>
 
           {/* User Avatar */}
-          <div className="flex justify-center">
+          <div className="flex justify-center py-2">
             <UserDropdown position="bottom-left" />
           </div>
         </div>

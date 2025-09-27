@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
 import {
   useReactTable,
@@ -27,8 +27,10 @@ interface EditableCellProps {
   value: string;
   onUpdate: (value: string) => void;
   isEditing: boolean;
+  isSelected: boolean;
   onStartEdit: () => void;
   onStopEdit: () => void;
+  onSelect: () => void;
   placeholder?: string;
   hasDropdown?: boolean;
 }
@@ -37,12 +39,15 @@ function EditableCell({
   value,
   onUpdate,
   isEditing,
+  isSelected,
   onStartEdit,
   onStopEdit,
+  onSelect,
   placeholder,
   hasDropdown = false,
 }: EditableCellProps) {
   const [editValue, setEditValue] = useState(value);
+  const [isDoubleClick, setIsDoubleClick] = useState(false);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -90,10 +95,37 @@ function EditableCell({
     );
   }
 
+  const handleClick = (_e: React.MouseEvent) => {
+    // Prevent single click if this is part of a double-click
+    if (isDoubleClick) {
+      setIsDoubleClick(false);
+      return;
+    }
+
+    // Small delay to check if double-click follows
+    setTimeout(() => {
+      if (!isDoubleClick && !isEditing) {
+        onSelect();
+      }
+    }, 100);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDoubleClick(true);
+    if (!isEditing) {
+      onStartEdit();
+    }
+  };
+
   return (
     <div
-      className="cursor-pointer rounded p-1 text-sm text-gray-900 hover:bg-gray-50"
-      onClick={onStartEdit}
+      className={`cursor-pointer rounded p-1 text-sm text-gray-900 hover:bg-gray-50 ${
+        isSelected ? "bg-blue-50" : ""
+      }`}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      style={{ userSelect: "none" }}
     >
       {value || "-"}
     </div>
@@ -102,20 +134,16 @@ function EditableCell({
 
 export function DataGrid({ data, columns = [] }: DataGridProps) {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [selectedCell, setSelectedCell] = useState<{
+    rowId: string;
+    columnId: string;
+  } | null>(null);
   const [editingCell, setEditingCell] = useState<{
     rowId: string;
     columnId: string;
   } | null>(null);
   const [cellValues, setCellValues] = useState<Record<string, string>>({});
-  const [focusedCell, setFocusedCell] = useState<{
-    rowIndex: number;
-    columnIndex: number;
-  } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-
-  // Debug logging
-  console.log("DataGrid - data:", data);
-  console.log("DataGrid - columns:", columns);
 
   const columnHelper = createColumnHelper<DataRow>();
 
@@ -138,6 +166,10 @@ export function DataGrid({ data, columns = [] }: DataGridProps) {
     [cellValues],
   );
 
+  const handleCellSelect = useCallback((rowId: string, columnId: string) => {
+    setSelectedCell({ rowId, columnId });
+  }, []);
+
   const handleCellEdit = useCallback((rowId: string, columnId: string) => {
     setEditingCell({ rowId, columnId });
   }, []);
@@ -145,6 +177,15 @@ export function DataGrid({ data, columns = [] }: DataGridProps) {
   const handleCellStopEdit = useCallback(() => {
     setEditingCell(null);
   }, []);
+
+  const isSelected = useCallback(
+    (rowId: string, columnId: string) => {
+      return (
+        selectedCell?.rowId === rowId && selectedCell?.columnId === columnId
+      );
+    },
+    [selectedCell],
+  );
 
   const isEditing = useCallback(
     (rowId: string, columnId: string) => {
@@ -241,9 +282,11 @@ export function DataGrid({ data, columns = [] }: DataGridProps) {
               onUpdate={(value) =>
                 handleCellUpdate(row.original.id, column.name, value)
               }
-              isEditing={isEditing(row.original.id, column.name)}
-              onStartEdit={() => handleCellEdit(row.original.id, column.name)}
+              isEditing={isEditing(row.original.id, column.id)}
+              isSelected={isSelected(row.original.id, column.id)}
+              onStartEdit={() => handleCellEdit(row.original.id, column.id)}
               onStopEdit={handleCellStopEdit}
+              onSelect={() => handleCellSelect(row.original.id, column.id)}
               placeholder={
                 column.type === "TEXT" ? "Enter text..." : "Enter number..."
               }
@@ -283,85 +326,118 @@ export function DataGrid({ data, columns = [] }: DataGridProps) {
     getCellValue,
     handleCellUpdate,
     isEditing,
+    isSelected,
     handleCellEdit,
+    handleCellSelect,
     handleCellStopEdit,
   ]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (!focusedCell) return;
+      if (!selectedCell) return;
 
-      const { rowIndex, columnIndex } = focusedCell;
+      // Find current cell position
+      const currentRowIndex = data.findIndex(
+        (row) => row.id === selectedCell.rowId,
+      );
+      const currentColumnIndex = columns.findIndex(
+        (col) => col.id === selectedCell.columnId,
+      );
+
+      if (currentRowIndex === -1 || currentColumnIndex === -1) return;
+
       const maxRows = data.length;
-      const maxColumns = tableColumns.length - 1; // Exclude the add column button
+      const maxColumns = columns.length;
 
       switch (e.key) {
         case "ArrowUp":
           e.preventDefault();
-          if (rowIndex > 0) {
-            setFocusedCell({ rowIndex: rowIndex - 1, columnIndex });
+          if (currentRowIndex > 0) {
+            const prevRow = data[currentRowIndex - 1];
+            if (prevRow) {
+              handleCellSelect(prevRow.id, selectedCell.columnId);
+            }
           }
           break;
         case "ArrowDown":
           e.preventDefault();
-          if (rowIndex < maxRows - 1) {
-            setFocusedCell({ rowIndex: rowIndex + 1, columnIndex });
+          if (currentRowIndex < maxRows - 1) {
+            const nextRow = data[currentRowIndex + 1];
+            if (nextRow) {
+              handleCellSelect(nextRow.id, selectedCell.columnId);
+            }
           }
           break;
         case "ArrowLeft":
           e.preventDefault();
-          if (columnIndex > 0) {
-            setFocusedCell({ rowIndex, columnIndex: columnIndex - 1 });
+          if (currentColumnIndex > 0) {
+            const prevColumn = columns[currentColumnIndex - 1];
+            if (prevColumn) {
+              handleCellSelect(selectedCell.rowId, prevColumn.id);
+            }
           }
           break;
         case "ArrowRight":
           e.preventDefault();
-          if (columnIndex < maxColumns - 1) {
-            setFocusedCell({ rowIndex, columnIndex: columnIndex + 1 });
+          if (currentColumnIndex < maxColumns - 1) {
+            const nextColumn = columns[currentColumnIndex + 1];
+            if (nextColumn) {
+              handleCellSelect(selectedCell.rowId, nextColumn.id);
+            }
           }
           break;
         case "Tab":
           e.preventDefault();
           if (e.shiftKey) {
             // Shift + Tab: move left
-            if (columnIndex > 0) {
-              setFocusedCell({ rowIndex, columnIndex: columnIndex - 1 });
-            } else if (rowIndex > 0) {
-              setFocusedCell({
-                rowIndex: rowIndex - 1,
-                columnIndex: maxColumns - 1,
-              });
+            if (currentColumnIndex > 0) {
+              const prevColumn = columns[currentColumnIndex - 1];
+              if (prevColumn) {
+                handleCellSelect(selectedCell.rowId, prevColumn.id);
+              }
+            } else if (currentRowIndex > 0) {
+              // Move to last column of previous row
+              const prevRow = data[currentRowIndex - 1];
+              const lastColumn = columns[maxColumns - 1];
+              if (prevRow && lastColumn) {
+                handleCellSelect(prevRow.id, lastColumn.id);
+              }
             }
           } else {
             // Tab: move right
-            if (columnIndex < maxColumns - 1) {
-              setFocusedCell({ rowIndex, columnIndex: columnIndex + 1 });
-            } else if (rowIndex < maxRows - 1) {
-              setFocusedCell({ rowIndex: rowIndex + 1, columnIndex: 0 });
+            if (currentColumnIndex < maxColumns - 1) {
+              const nextColumn = columns[currentColumnIndex + 1];
+              if (nextColumn) {
+                handleCellSelect(selectedCell.rowId, nextColumn.id);
+              }
+            } else if (currentRowIndex < maxRows - 1) {
+              // Move to first column of next row
+              const nextRow = data[currentRowIndex + 1];
+              const firstColumn = columns[0];
+              if (nextRow && firstColumn) {
+                handleCellSelect(nextRow.id, firstColumn.id);
+              }
             }
           }
           break;
         case "Enter":
+        case " ":
           e.preventDefault();
-          if (focusedCell) {
-            const row = data[focusedCell.rowIndex];
-            const column = tableColumns[focusedCell.columnIndex];
-            if (row && column && "accessorKey" in column) {
-              handleCellEdit(row.id, column.accessorKey as string);
-            }
+          if (!editingCell) {
+            handleCellEdit(selectedCell.rowId, selectedCell.columnId);
           }
           break;
       }
     },
-    [focusedCell, data, tableColumns, handleCellEdit],
+    [
+      selectedCell,
+      data,
+      columns,
+      handleCellSelect,
+      handleCellEdit,
+      editingCell,
+    ],
   );
-
-  // Set initial focus
-  useEffect(() => {
-    if (data.length > 0 && !focusedCell) {
-      setFocusedCell({ rowIndex: 0, columnIndex: 1 }); // Start at first data cell
-    }
-  }, [data, focusedCell]);
 
   const table = useReactTable({
     data,
@@ -404,23 +480,21 @@ export function DataGrid({ data, columns = [] }: DataGridProps) {
           ))}
         </thead>
         <tbody>
-          {table.getRowModel().rows.map((row, rowIndex) => (
+          {table.getRowModel().rows.map((row, _rowIndex) => (
             <tr
               key={row.id}
-              className={`border-b border-gray-200 hover:bg-gray-50 ${
-                focusedCell?.rowIndex === rowIndex ? "bg-blue-50" : ""
-              }`}
+              className="border-b border-gray-200 hover:bg-gray-50"
             >
-              {row.getVisibleCells().map((cell, columnIndex) => {
-                const isFocused =
-                  focusedCell?.rowIndex === rowIndex &&
-                  focusedCell?.columnIndex === columnIndex;
+              {row.getVisibleCells().map((cell, _columnIndex) => {
+                const isSelected =
+                  selectedCell?.rowId === row.original.id &&
+                  selectedCell?.columnId === cell.column.id;
 
                 return (
                   <td
                     key={cell.id}
                     className={`px-3 py-2 ${
-                      isFocused ? "ring-2 ring-blue-500 ring-inset" : ""
+                      isSelected ? "ring-2 ring-blue-500 ring-inset" : ""
                     }`}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

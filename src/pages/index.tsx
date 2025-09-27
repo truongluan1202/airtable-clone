@@ -175,9 +175,9 @@ export default function Home() {
             </div>
 
             {/* Base Cards Grid */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2">
-              {bases && bases.length > 0 ? (
-                bases.map((base: any) => (
+            {bases && bases.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2">
+                {bases.map((base: any) => (
                   <div
                     key={base.id}
                     className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md"
@@ -196,40 +196,34 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                ))
-              ) : (
-                <>
-                  <div className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 font-medium text-white">
-                        Un
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          Untitled Base
-                        </h3>
-                        <p className="text-xs text-gray-500">Opened just now</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 font-medium text-white">
-                        Fa
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          fasd
-                        </h3>
-                        <p className="text-xs text-gray-500">
-                          Opened 17 minutes ago
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+                  <Image
+                    src="/icons/stacked-boxes.svg"
+                    alt="No bases"
+                    width={32}
+                    height={32}
+                    className="text-gray-400"
+                  />
+                </div>
+                <h3 className="mb-2 text-lg font-medium text-gray-900">
+                  No bases yet
+                </h3>
+                <p className="mb-6 text-sm text-gray-500">
+                  Create your first base to get started with organizing your
+                  data.
+                </p>
+                <button
+                  onClick={() => setShowCreateBase(true)}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+                >
+                  Create your first base
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Right Sidebar */}
