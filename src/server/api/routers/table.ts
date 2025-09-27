@@ -153,12 +153,16 @@ export const tableRouter = createTRPCRouter({
         for (const row of createdRows) {
           for (const column of table.columns) {
             let value;
-            if (column.name === "Name") {
-              value = faker.person.fullName();
-            } else if (column.name === "Email") {
-              value = faker.internet.email();
-            } else if (column.name === "Age") {
-              value = faker.number.int({ min: 18, max: 80 });
+            if (column.type === "TEXT") {
+              if (column.name.toLowerCase().includes("name")) {
+                value = faker.person.fullName();
+              } else if (column.name.toLowerCase().includes("email")) {
+                value = faker.internet.email();
+              } else {
+                value = faker.lorem.words(2);
+              }
+            } else if (column.type === "NUMBER") {
+              value = faker.number.int({ min: 1, max: 100 });
             }
 
             cells.push({
@@ -543,17 +547,63 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
-      // Create cells for all existing rows
-      const cells = table.rows.map((row: { id: string }) => ({
-        rowId: row.id,
-        columnId: column.id,
-        vText: null,
-        vNumber: null,
-      }));
+      // Create cells with sample data for all existing rows
+      const cells = [];
+      for (const row of table.rows) {
+        let value;
+        if (column.type === "TEXT") {
+          if (column.name.toLowerCase().includes("name")) {
+            value = faker.person.fullName();
+          } else if (column.name.toLowerCase().includes("email")) {
+            value = faker.internet.email();
+          } else {
+            value = faker.lorem.words(2);
+          }
+        } else if (column.type === "NUMBER") {
+          value = faker.number.int({ min: 1, max: 100 });
+        }
+
+        cells.push({
+          rowId: row.id,
+          columnId: column.id,
+          vText: column.type === "TEXT" ? value : null,
+          vNumber: column.type === "NUMBER" ? value : null,
+        });
+      }
 
       await ctx.prisma.cell.createMany({
         data: cells,
       });
+
+      // Update row cache to include the new column with generated data
+      for (const row of table.rows) {
+        const existingCache =
+          (row.cache as Record<string, string | number | null>) ?? {};
+
+        // Find the cell value for this row and column
+        const cell = cells.find((c) => c.rowId === row.id);
+        const cellValue = cell?.vText ?? cell?.vNumber ?? null;
+
+        const updatedCache = {
+          ...existingCache,
+          [column.id]: cellValue,
+        };
+
+        // Update search text as well
+        const existingSearch = row.search ?? "";
+        const newSearchText = cellValue ? String(cellValue) : "";
+        const updatedSearch = existingSearch
+          ? `${existingSearch} ${newSearchText}`
+          : newSearchText;
+
+        await ctx.prisma.row.update({
+          where: { id: row.id },
+          data: {
+            cache: updatedCache,
+            search: updatedSearch.trim(),
+          },
+        });
+      }
 
       return column;
     }),

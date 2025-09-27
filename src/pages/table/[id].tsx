@@ -2,7 +2,6 @@ import Head from "next/head";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import { faker } from "@faker-js/faker";
 import { api } from "~/utils/api";
 import { DataGrid } from "~/components/table/DataGrid";
 import { TableNavigation } from "~/components/table/TableNavigation";
@@ -13,11 +12,26 @@ export default function TableDetail() {
   const router = useRouter();
   const { id } = router.query;
   const [showAddDataModal, setShowAddDataModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [columnVisibility, setColumnVisibility] = useState<
+    Record<string, boolean>
+  >({});
 
   const { data: table, isLoading: tableLoading } = api.table.getById.useQuery(
     { id: id as string },
     { enabled: !!id },
   );
+
+  // Initialize column visibility when table data loads
+  useEffect(() => {
+    if (table?.columns && Object.keys(columnVisibility).length === 0) {
+      const initialVisibility: Record<string, boolean> = {};
+      table.columns.forEach((column: { id: string }) => {
+        initialVisibility[column.id] = true; // All columns visible by default
+      });
+      setColumnVisibility(initialVisibility);
+    }
+  }, [table?.columns, columnVisibility]);
 
   // Fetch all tables for the base
   const { data: baseTables, isLoading: tablesLoading } =
@@ -83,25 +97,9 @@ export default function TableDetail() {
 
       // Map each column to its value from the cache
       table?.columns?.forEach((column: any) => {
-        const value = row.cache?.[column.name];
-        if (value !== undefined && value !== null) {
-          rowData[column.name] = value;
-        } else {
-          // Generate sample data if no cached value
-          if (column.type === "TEXT") {
-            if (column.name.toLowerCase().includes("name")) {
-              rowData[column.name] = faker.person.fullName();
-            } else if (column.name.toLowerCase().includes("email")) {
-              rowData[column.name] = faker.internet.email();
-            } else {
-              rowData[column.name] = faker.lorem.words(2);
-            }
-          } else if (column.type === "NUMBER") {
-            rowData[column.name] = faker.number.int({ min: 1, max: 100 });
-          } else {
-            rowData[column.name] = "";
-          }
-        }
+        const value = row.cache?.[column.id];
+        // Only use cached values - don't generate fake data on refresh
+        rowData[column.name] = value ?? "";
       });
 
       return rowData;
@@ -155,8 +153,32 @@ export default function TableDetail() {
         onTableSelect={handleTableSelect}
         onTableCreated={handleTableCreated}
       >
-        <TableNavigation>
-          <DataGrid data={gridData} columns={table?.columns} />
+        <TableNavigation
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          columns={table?.columns}
+          columnVisibility={columnVisibility}
+          onColumnVisibilityChange={(columnId, visible) => {
+            setColumnVisibility((prev) => ({
+              ...prev,
+              [columnId]: visible,
+            }));
+          }}
+        >
+          <DataGrid
+            data={gridData}
+            columns={table?.columns}
+            tableId={table?.id}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={(columnId, visible) => {
+              setColumnVisibility((prev) => ({
+                ...prev,
+                [columnId]: visible,
+              }));
+            }}
+          />
         </TableNavigation>
       </TableViewLayout>
 

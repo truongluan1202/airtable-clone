@@ -124,12 +124,16 @@ export const baseRouter = createTRPCRouter({
       for (const row of createdRows) {
         for (const column of table.columns) {
           let value;
-          if (column.name === "Name") {
-            value = faker.person.fullName();
-          } else if (column.name === "Email") {
-            value = faker.internet.email();
-          } else if (column.name === "Age") {
-            value = faker.number.int({ min: 18, max: 80 });
+          if (column.type === "TEXT") {
+            if (column.name.toLowerCase().includes("name")) {
+              value = faker.person.fullName();
+            } else if (column.name.toLowerCase().includes("email")) {
+              value = faker.internet.email();
+            } else {
+              value = faker.lorem.words(2);
+            }
+          } else if (column.type === "NUMBER") {
+            value = faker.number.int({ min: 1, max: 100 });
           }
 
           cells.push({
@@ -158,9 +162,9 @@ export const baseRouter = createTRPCRouter({
           if (column) {
             const cellValue = cell.vText ?? cell.vNumber;
 
-            cache[column.name] = cellValue ?? null;
-            if (cellValue && typeof cellValue === "string") {
-              searchTexts.push(cellValue);
+            cache[column.id] = cellValue ?? null;
+            if (cellValue) {
+              searchTexts.push(String(cellValue));
             }
           }
         }
