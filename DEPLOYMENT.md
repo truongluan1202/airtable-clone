@@ -72,7 +72,19 @@ If you need to manually seed the database:
 npx prisma db seed
 ```
 
-### 7. Database Reset (Development Only)
+### 7. Schema Changes
+
+For schema changes in production:
+
+```bash
+# Push schema changes directly (recommended for deployment)
+npx prisma db push
+
+# Or use migrations for complex changes
+npx prisma migrate dev --name your_migration_name
+```
+
+### 8. Database Reset (Development Only)
 
 For local development, if you need to reset:
 
