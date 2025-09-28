@@ -51,6 +51,11 @@ prisma db seed
 2. Ensure your database allows connections from Vercel's IP ranges
 3. Check the build logs for migration errors
 
+**Common Migration Issues:**
+
+- **"type already exists" error**: The database schema already exists but migrations are out of sync
+- **Solution**: Run `npx prisma migrate resolve --applied <migration_name>` to mark migrations as applied
+
 **If no workspace appears:**
 
 1. The seed script only runs if no users exist
