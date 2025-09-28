@@ -7,9 +7,10 @@ import { api } from "~/utils/api";
 import { AirtableLayout } from "~/components/layout";
 import { UserDropdown } from "~/components/ui";
 
-export default function Home() {
+export default function WorkspacePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { id } = router.query;
   const [showCreateBase, setShowCreateBase] = useState(false);
   const [baseName, setBaseName] = useState("");
   const [baseDescription, setBaseDescription] = useState("");
@@ -29,17 +30,16 @@ export default function Home() {
 
   const [showWorkspaceDropdown, setShowWorkspaceDropdown] = useState(false);
 
-  const { data: workspaces, refetch: refetchWorkspaces } =
-    api.workspace.getAll.useQuery();
-  const { data: bases, refetch: refetchBases } = api.base.getAll.useQuery();
+  const { data: workspace } = api.workspace.getById.useQuery(
+    { id: id as string },
+    { enabled: !!id },
+  );
 
-  const createWorkspace = api.workspace.create.useMutation({
-    onSuccess: (newWorkspace) => {
-      void refetchWorkspaces();
-      // Redirect to the newly created workspace
-      void router.push(`/workspace/${newWorkspace.id}`);
-    },
-  });
+  const { data: bases, refetch: refetchBases } =
+    api.base.getByWorkspace.useQuery(
+      { workspaceId: id as string },
+      { enabled: !!id },
+    );
 
   const createBase = api.base.create.useMutation({
     onSuccess: (newBase) => {
@@ -61,12 +61,9 @@ export default function Home() {
 
   const deleteWorkspace = api.workspace.delete.useMutation({
     onSuccess: () => {
-      void refetchWorkspaces();
       setShowWorkspaceDropdown(false);
-      // If we deleted the current workspace, redirect to home
-      if (workspaces && workspaces.length === 1) {
-        void router.push("/");
-      }
+      // Redirect to home after deleting workspace
+      void router.push("/");
     },
   });
 
@@ -76,13 +73,6 @@ export default function Home() {
       void router.push("/auth/signin");
     }
   }, [session, status, router]);
-
-  // Redirect to first workspace if available
-  useEffect(() => {
-    if (workspaces && workspaces.length > 0 && !router.query.workspace) {
-      void router.push(`/workspace/${workspaces[0]?.id}`);
-    }
-  }, [workspaces, router]);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -100,18 +90,12 @@ export default function Home() {
     };
   }, [contextMenu.visible, showWorkspaceDropdown]);
 
-  const handleCreateWorkspace = () => {
-    createWorkspace.mutate({
-      name: "My First Workspace",
-    });
-  };
-
   const handleCreateBase = () => {
-    if (baseName.trim() && workspaces && workspaces.length > 0) {
+    if (baseName.trim() && id) {
       createBase.mutate({
         name: baseName.trim(),
         description: baseDescription.trim() || undefined,
-        workspaceId: workspaces[0]?.id ?? "",
+        workspaceId: id as string,
       });
     }
   };
@@ -139,8 +123,8 @@ export default function Home() {
   };
 
   const handleDeleteWorkspace = () => {
-    if (workspaces && workspaces.length > 0) {
-      deleteWorkspace.mutate({ id: workspaces[0]?.id ?? "" });
+    if (id) {
+      deleteWorkspace.mutate({ id: id as string });
     }
   };
 
@@ -159,10 +143,20 @@ export default function Home() {
     return null; // Will redirect to signin
   }
 
+  if (!workspace) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div className="text-center">
+          <p className="text-gray-600">Workspace not found</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <Head>
-        <title>Airtable Clone</title>
+        <title>{workspace.name} - Airtable Clone</title>
         <meta
           name="description"
           content="A powerful database and collaboration tool"
@@ -174,134 +168,105 @@ export default function Home() {
         <div className="flex h-full">
           {/* Main Content Area */}
           <div className="flex-1 p-6">
-            {/* Welcome Screen - Show when no workspaces exist */}
-            {workspaces && workspaces.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-20 text-center">
-                <div className="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-blue-100">
+            {/* Workspace Header */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900">
+                    {workspace.name}
+                  </h1>
+                  {workspace.description && (
+                    <p className="mt-1 text-gray-600">
+                      {workspace.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Recently Opened Section */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <h2 className="text-lg font-semibold text-gray-900">Bases</h2>
                   <Image
-                    src="/icons/workspace.svg"
-                    alt="Workspace"
-                    width={48}
-                    height={48}
-                    className="text-blue-600"
+                    src="/icons/chevron-down.svg"
+                    alt="Dropdown"
+                    width={16}
+                    height={16}
+                    className="text-gray-400"
                   />
                 </div>
-                <h1 className="mb-4 text-4xl font-bold text-gray-900">
-                  Welcome to Airtable
-                </h1>
-                <p className="mb-8 max-w-md text-lg text-gray-600">
-                  Create your first workspace to start organizing your data and
-                  collaborating with your team.
-                </p>
-                <button
-                  onClick={handleCreateWorkspace}
-                  className="rounded-md bg-blue-600 px-6 py-3 text-white transition-colors hover:bg-blue-700"
-                >
-                  Create your first workspace
-                </button>
+                <div className="flex items-center space-x-1 rounded border border-gray-300 bg-white">
+                  <button className="p-2 text-gray-400 hover:text-gray-600">
+                    <Image
+                      src="/icons/list-view.svg"
+                      alt="List View"
+                      width={16}
+                      height={16}
+                    />
+                  </button>
+                  <button className="bg-gray-100 p-2 text-gray-600">
+                    <Image
+                      src="/icons/grid-view.svg"
+                      alt="Grid View"
+                      width={16}
+                      height={16}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Base Cards Grid */}
+            {bases && bases.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2">
+                {bases.map((base: any) => (
+                  <div
+                    key={base.id}
+                    className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md"
+                    onClick={() => router.push(`/base/${base.id}`)}
+                    onContextMenu={(e) => handleContextMenu(e, base)}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 font-medium text-white">
+                        {base.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          {base.name}
+                        </h3>
+                        <p className="text-xs text-gray-500">Opened just now</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
-              <>
-                {/* Workspace Header */}
-                <div className="mb-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h1 className="text-3xl font-bold text-gray-900">
-                        My First Workspace
-                      </h1>
-                    </div>
-                  </div>
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+                  <Image
+                    src="/icons/stacked-boxes.svg"
+                    alt="No bases"
+                    width={32}
+                    height={32}
+                    className="text-gray-400"
+                  />
                 </div>
-
-                {/* Recently Opened Section */}
-                <div className="mb-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <h2 className="text-lg font-semibold text-gray-900">
-                        Last opened
-                      </h2>
-                      <Image
-                        src="/icons/chevron-down.svg"
-                        alt="Dropdown"
-                        width={16}
-                        height={16}
-                        className="text-gray-400"
-                      />
-                    </div>
-                    <div className="flex items-center space-x-1 rounded border border-gray-300 bg-white">
-                      <button className="p-2 text-gray-400 hover:text-gray-600">
-                        <Image
-                          src="/icons/list-view.svg"
-                          alt="List View"
-                          width={16}
-                          height={16}
-                        />
-                      </button>
-                      <button className="bg-gray-100 p-2 text-gray-600">
-                        <Image
-                          src="/icons/grid-view.svg"
-                          alt="Grid View"
-                          width={16}
-                          height={16}
-                        />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Base Cards Grid */}
-                {bases && bases.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2">
-                    {bases.map((base: any) => (
-                      <div
-                        key={base.id}
-                        className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md"
-                        onClick={() => router.push(`/base/${base.id}`)}
-                        onContextMenu={(e) => handleContextMenu(e, base)}
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 font-medium text-white">
-                            {base.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="text-sm font-semibold text-gray-900">
-                              {base.name}
-                            </h3>
-                            <p className="text-xs text-gray-500">
-                              Opened just now
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
-                      <Image
-                        src="/icons/stacked-boxes.svg"
-                        alt="No bases"
-                        width={32}
-                        height={32}
-                        className="text-gray-400"
-                      />
-                    </div>
-                    <h3 className="mb-2 text-lg font-medium text-gray-900">
-                      No bases yet
-                    </h3>
-                    <p className="mb-6 text-sm text-gray-500">
-                      Create your first base to get started with organizing your
-                      data.
-                    </p>
-                    <button
-                      onClick={() => setShowCreateBase(true)}
-                      className="rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
-                    >
-                      Create your first base
-                    </button>
-                  </div>
-                )}
-              </>
+                <h3 className="mb-2 text-lg font-medium text-gray-900">
+                  No bases yet
+                </h3>
+                <p className="mb-6 text-sm text-gray-500">
+                  Create your first base to get started with organizing your
+                  data.
+                </p>
+                <button
+                  onClick={() => setShowCreateBase(true)}
+                  className="rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+                >
+                  Create your first base
+                </button>
+              </div>
             )}
           </div>
 
@@ -327,31 +292,35 @@ export default function Home() {
                     }}
                     className="rounded-md border border-gray-300 bg-white px-2 py-2 text-gray-700 transition-colors hover:bg-gray-50"
                   >
-                    <Image
-                      src="/icons/menu.svg"
-                      alt="More options"
-                      width={16}
-                      height={16}
-                      className="mx-auto"
-                    />
+                    <svg
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z"
+                      />
+                    </svg>
                   </button>
 
                   {/* Dropdown Menu */}
-                  {showWorkspaceDropdown &&
-                    workspaces &&
-                    workspaces.length > 0 && (
-                      <div className="absolute top-full right-0 z-50 mt-1 w-48 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
-                        <button
-                          onClick={handleDeleteWorkspace}
-                          disabled={deleteWorkspace.isPending}
-                          className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        >
-                          {deleteWorkspace.isPending
-                            ? "Deleting..."
-                            : "Delete Workspace"}
-                        </button>
-                      </div>
-                    )}
+                  {showWorkspaceDropdown && (
+                    <div className="absolute top-full right-0 z-50 mt-1 w-48 rounded-md border border-gray-200 bg-white py-1 shadow-lg">
+                      <button
+                        onClick={handleDeleteWorkspace}
+                        disabled={deleteWorkspace.isPending}
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deleteWorkspace.isPending
+                          ? "Deleting..."
+                          : "Delete Workspace"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

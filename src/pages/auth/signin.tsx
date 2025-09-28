@@ -34,7 +34,7 @@ const SignIn: NextPage = () => {
                 alt="Airtable"
                 width={120}
                 height={40}
-                className="h-10 w-auto"
+                className="h-15 w-auto"
               />
             </div>
 
@@ -60,7 +60,7 @@ const SignIn: NextPage = () => {
             </div>
 
             {/* Continue Button */}
-            <button className="font-small mb-6 w-full rounded-lg bg-blue-500 px-4 py-3 text-white transition-colors hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none">
+            <button className="font-small mb-6 w-full rounded-lg bg-[#93b0e4] px-4 py-3 text-white transition-colors hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none">
               Continue
             </button>
 

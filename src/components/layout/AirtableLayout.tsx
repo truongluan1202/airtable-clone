@@ -1,5 +1,7 @@
 import { useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/router";
+import { api } from "~/utils/api";
 import { UserDropdown } from "~/components/ui";
 
 interface AirtableLayoutProps {
@@ -8,12 +10,34 @@ interface AirtableLayoutProps {
 
 export function AirtableLayout({ children }: AirtableLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [workspacesExpanded, setWorkspacesExpanded] = useState(true);
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const router = useRouter();
+
+  const { data: workspaces, refetch: refetchWorkspaces } =
+    api.workspace.getAll.useQuery();
+  const createWorkspace = api.workspace.create.useMutation({
+    onSuccess: () => {
+      void refetchWorkspaces();
+      setShowCreateWorkspace(false);
+      setWorkspaceName("");
+    },
+  });
+
+  const handleCreateWorkspace = () => {
+    if (workspaceName.trim()) {
+      createWorkspace.mutate({
+        name: workspaceName.trim(),
+      });
+    }
+  };
 
   return (
     <div className="flex h-screen bg-white">
       {/* Fixed Horizontal Header */}
       <div className="fixed top-0 right-0 left-0 z-50 border-b border-gray-200 bg-white">
-        <div className="flex h-16 items-center justify-between px-4">
+        <div className="flex h-14 items-center justify-between px-4">
           {/* Left side - Menu and Logo */}
           <div className="flex items-center space-x-4">
             <button
@@ -28,12 +52,12 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                 className="text-gray-600"
               />
             </button>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-0">
               <Image
                 src="/icons/airtable-logo.png"
                 alt="Airtable"
-                width={24}
-                height={24}
+                width={40}
+                height={40}
               />
               <span className="text-xl font-semibold text-gray-900">
                 Airtable
@@ -42,7 +66,7 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
           </div>
 
           {/* Center - Search Bar */}
-          <div className="mx-8 max-w-md flex-1">
+          <div className="mx-8 max-w-sm flex-1">
             <div className="relative">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
                 <Image
@@ -56,7 +80,7 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
               <input
                 type="text"
                 placeholder="Search..."
-                className="block w-full rounded-md border border-gray-300 bg-white py-2 pr-12 pl-10 leading-5 placeholder-gray-500 focus:border-blue-500 focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                className="block w-full rounded-4xl border border-gray-300 bg-white py-2 pr-12 pl-10 leading-5 placeholder-gray-500 focus:border-blue-500 focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
               <div className="absolute inset-y-0 right-0 flex items-center pr-3">
                 <span className="text-xs text-gray-400">⌘K</span>
@@ -84,20 +108,17 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
 
       {/* Vertical Sidebar */}
       <div
-        className={`${sidebarCollapsed ? "w-16" : "w-75"} fixed top-16 left-0 z-40 border-r border-gray-200 bg-white transition-all duration-200`}
+        className={`${
+          sidebarCollapsed ? "w-16" : "w-72"
+        } fixed top-16 bottom-0 left-0 z-40 flex flex-col border-r border-gray-200 bg-white transition-all duration-200`}
       >
-        <div className="p-4">
-          {/* Navigation Items */}
-          <nav className="space-y-1">
+        {/* Column layout that fills the available height */}
+        <div className="flex h-full flex-col">
+          {/* Scrollable NAV (fills remaining height) */}
+          <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-3">
             {/* Home */}
             <div className="flex items-center space-x-3 rounded-md bg-gray-100 p-2">
-              <Image
-                src="/icons/home.svg"
-                alt="Home"
-                width={20}
-                height={20}
-                className="text-gray-700"
-              />
+              <Image src="/icons/home.svg" alt="Home" width={20} height={20} />
               {!sidebarCollapsed && (
                 <span className="text-sm font-medium text-gray-900">Home</span>
               )}
@@ -110,17 +131,15 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                 alt="Starred"
                 width={20}
                 height={20}
-                className="text-gray-600"
               />
               {!sidebarCollapsed && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-700">Starred</span>
                   <Image
                     src="/icons/chevron-down.svg"
-                    alt="Dropdown"
+                    alt=""
                     width={12}
                     height={12}
-                    className="text-gray-400"
                   />
                 </div>
               )}
@@ -128,15 +147,9 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
 
             {/* Starred placeholder */}
             {!sidebarCollapsed && (
-              <div className="font-small mb-2 ml-2 rounded-md bg-gray-50 p-3">
+              <div className="ml-2 rounded-md bg-gray-50 p-3">
                 <div className="flex items-center space-x-2">
-                  <Image
-                    src="/icons/star.svg"
-                    alt="Star"
-                    width={16}
-                    height={16}
-                    className="text-gray-400"
-                  />
+                  <Image src="/icons/star.svg" alt="" width={16} height={16} />
                   <span className="text-xs text-gray-500">
                     Your starred bases, interfaces, and workspaces will appear
                     here.
@@ -152,14 +165,13 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                 alt="Shared"
                 width={20}
                 height={20}
-                className="text-gray-600"
               />
               {!sidebarCollapsed && (
                 <span className="text-sm text-gray-700">Shared</span>
               )}
             </div>
 
-            {/* Workspaces */}
+            {/* Workspaces header */}
             <div className="flex cursor-pointer items-center justify-between rounded-md p-2 hover:bg-gray-100">
               <div className="flex items-center space-x-3">
                 <Image
@@ -167,7 +179,6 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                   alt="Workspaces"
                   width={20}
                   height={20}
-                  className="text-gray-600"
                 />
                 {!sidebarCollapsed && (
                   <span className="text-sm text-gray-700">Workspaces</span>
@@ -175,39 +186,66 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
               </div>
               {!sidebarCollapsed && (
                 <div className="flex items-center space-x-1">
-                  <button className="rounded p-1 hover:bg-gray-200">
+                  <button
+                    onClick={() => setShowCreateWorkspace(true)}
+                    className="rounded p-1 hover:bg-gray-200"
+                  >
                     <Image
                       src="/icons/plus.svg"
-                      alt="Add"
+                      alt=""
                       width={12}
                       height={12}
-                      className="text-gray-500"
                     />
                   </button>
-                  <button className="rounded p-1 hover:bg-gray-200">
+                  <button
+                    onClick={() => setWorkspacesExpanded(!workspacesExpanded)}
+                    className="rounded p-1 hover:bg-gray-200"
+                  >
                     <Image
-                      src="/icons/chevron-right.svg"
-                      alt="Expand"
+                      src={
+                        workspacesExpanded
+                          ? "/icons/chevron-down.svg"
+                          : "/icons/chevron-right.svg"
+                      }
+                      alt=""
                       width={12}
                       height={12}
-                      className="text-gray-500"
                     />
                   </button>
                 </div>
               )}
             </div>
+
+            {/* Workspace List */}
+            {!sidebarCollapsed && workspacesExpanded && workspaces && (
+              <div className="ml-6 space-y-1">
+                {workspaces.map((ws: any) => (
+                  <div
+                    key={ws.id}
+                    onClick={() => router.push(`/workspace/${ws.id}`)}
+                    className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100"
+                  >
+                    <Image
+                      src="/icons/workspace.svg"
+                      alt=""
+                      width={16}
+                      height={16}
+                    />
+                    <span className="text-sm text-gray-700">{ws.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </nav>
 
-          {/* Bottom Section */}
-          <div className="relative mt-8 flex h-full flex-col justify-end space-y-1 border-t border-gray-200 bg-white pt-5">
-            {/* Templates and apps */}
+          {/* Bottom (fixed) */}
+          <div className="mx-4 space-y-1 border-t border-gray-200 py-4 pt-4">
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
               <Image
                 src="/icons/document.svg"
                 alt="Templates"
                 width={20}
                 height={20}
-                className="text-gray-600"
               />
               {!sidebarCollapsed && (
                 <span className="text-sm text-gray-700">
@@ -215,37 +253,30 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                 </span>
               )}
             </div>
-
-            {/* Marketplace */}
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
               <Image
                 src="/icons/checkbox.svg"
                 alt="Marketplace"
                 width={20}
                 height={20}
-                className="text-gray-600"
               />
               {!sidebarCollapsed && (
                 <span className="text-sm text-gray-700">Marketplace</span>
               )}
             </div>
-
-            {/* Import */}
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
               <Image
                 src="/icons/plus.svg"
                 alt="Import"
                 width={20}
                 height={20}
-                className="text-gray-600"
               />
               {!sidebarCollapsed && (
                 <span className="text-sm text-gray-700">Import</span>
               )}
             </div>
 
-            {/* Create Button */}
-            <button className="mt-5 flex w-full items-center justify-center space-x-2 rounded-md bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700">
+            <button className="mt-2 w-full rounded-md bg-[#166ee1] px-4 py-2 text-white hover:bg-blue-700">
               {!sidebarCollapsed && (
                 <span className="text-sm font-medium">+ Create</span>
               )}
@@ -260,6 +291,46 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
       >
         <div className="h-full overflow-auto">{children}</div>
       </div>
+
+      {/* Create Workspace Modal */}
+      {showCreateWorkspace && (
+        <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
+            <h3 className="mb-4 text-lg font-medium text-gray-900">
+              Create New Workspace
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Workspace Name
+                </label>
+                <input
+                  type="text"
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  placeholder="Enter workspace name"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowCreateWorkspace(false)}
+                className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateWorkspace}
+                disabled={!workspaceName.trim() || createWorkspace.isPending}
+                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {createWorkspace.isPending ? "Creating..." : "Create Workspace"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -202,24 +202,37 @@ export function TableViewLayout({
         </div>
 
         {/* Table Navigation Bar */}
-        <div className="border-b border-gray-200 bg-white">
-          <div className="flex h-12 items-center justify-between px-6">
+        <div className="relative z-10 bg-white">
+          <div className="flex h-9 items-center justify-between bg-[#e3f9fd] px-6 pl-0">
             {/* Left side - Table tabs */}
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-1">
-                {tables.map((table) => (
-                  <button
-                    key={table.id}
-                    onClick={() => onTableSelect?.(table.id)}
-                    className={`rounded px-3 py-1 text-sm font-medium ${
-                      table.name === tableName
-                        ? "bg-gray-100 text-gray-900"
-                        : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
-                    }`}
-                  >
-                    {table.name}
-                  </button>
-                ))}
+              <div className="flex items-center space-x-0">
+                {tables.map((table) => {
+                  const active = table.name === tableName;
+                  return (
+                    <button
+                      key={table.id}
+                      onClick={() => onTableSelect?.(table.id)}
+                      className={[
+                        "relative inline-flex h-9.5 w-20 items-center rounded-t-md px-3 pt-1 text-sm font-medium transition-colors",
+                        active
+                          ? [
+                              "border border-gray-300 bg-white p-0 text-gray-900",
+                              "z-20 -mb-px border-b-transparent",
+                              "after:absolute after:right-[-1px] after:left-[-1px] after:content-['']",
+                              "after:bottom-[-1px] after:h-[8px] after:bg-white",
+                              "after:border-r after:border-l after:border-gray-300",
+                              "after:pointer-events-none",
+                            ].join(" ")
+                          : "border border-transparent text-gray-600 hover:bg-blue-100 hover:text-gray-800",
+                      ].join(" ")}
+                    >
+                      {table.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center space-x-2">
                 <Image
                   src="/icons/chevron-down.svg"
                   alt="More tables"
@@ -229,7 +242,7 @@ export function TableViewLayout({
                 />
                 <button
                   onClick={() => setShowCreateTable(true)}
-                  className="ml-2 rounded bg-purple-600 px-3 py-1 text-sm font-medium text-white hover:bg-purple-700"
+                  className="ml-2 rounded px-3 py-1 text-sm font-medium text-gray-600 hover:bg-blue-100 hover:text-gray-900"
                 >
                   + Add or import
                 </button>
@@ -246,7 +259,9 @@ export function TableViewLayout({
         </div>
 
         {/* Table Content */}
-        <div className="flex-1 overflow-hidden">{children}</div>
+        <div className="relative z-0 flex-1 overflow-hidden border-t border-gray-200 bg-white">
+          {children}
+        </div>
       </div>
 
       {/* Create Table Modal */}

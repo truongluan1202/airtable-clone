@@ -22,7 +22,6 @@ export interface Cell {
 export interface Row {
   id: string;
   tableId: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   cache: Record<string, any> | null;
   search: string | null;
   cells: Cell[];
@@ -91,7 +90,25 @@ export type FilterOperator =
   | "is_empty"
   | "is_not_empty";
 
+export type FilterCondition = {
+  id: string;
+  columnId: string;
+  operator: FilterOperator;
+  value: string | number;
+};
+
+export type FilterGroup = {
+  id: string;
+  conditions: FilterCondition[];
+  logicOperator: "and" | "or";
+};
+
 // Cell editing types
+export interface CellSelection {
+  rowId: string;
+  columnId: string;
+}
+
 export interface CellEditState {
   rowId: string;
   columnId: string;
@@ -103,7 +120,7 @@ export interface TableState {
   selectedCell: CellEditState | null;
   editingCell: CellEditState | null;
   searchQuery: string;
-  filters: FilterConfig[];
+  filters: FilterGroup[];
   sort: SortConfig[];
   columnVisibility: Record<string, boolean>;
 }

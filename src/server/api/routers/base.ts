@@ -9,6 +9,7 @@ export const baseRouter = createTRPCRouter({
         userId: ctx.session.user.id,
       },
       include: {
+        workspace: true,
         tables: {
           include: {
             _count: {
@@ -26,6 +27,34 @@ export const baseRouter = createTRPCRouter({
     });
   }),
 
+  // Get all bases for a specific workspace
+  getByWorkspace: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.prisma.base.findMany({
+        where: {
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
+        },
+        include: {
+          workspace: true,
+          tables: {
+            include: {
+              _count: {
+                select: {
+                  rows: true,
+                  columns: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
+    }),
+
   // Get a single base by ID
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -36,6 +65,7 @@ export const baseRouter = createTRPCRouter({
           userId: ctx.session.user.id,
         },
         include: {
+          workspace: true,
           tables: {
             include: {
               columns: true,
@@ -62,14 +92,28 @@ export const baseRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1).max(100),
         description: z.string().optional(),
+        workspaceId: z.string(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Verify workspace ownership
+      const workspace = await ctx.prisma.workspace.findFirst({
+        where: {
+          id: input.workspaceId,
+          userId: ctx.session.user.id,
+        },
+      });
+
+      if (!workspace) {
+        throw new Error("Workspace not found");
+      }
+
       // Create the base
       const base = await ctx.prisma.base.create({
         data: {
           name: input.name,
           description: input.description,
+          workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
         },
       });

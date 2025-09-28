@@ -1,15 +1,22 @@
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { HideFieldsDropdown } from "./HideFieldsModal";
+import { SortDropdown } from "./SortDropdown";
+import { FilterDropdown } from "./FilterModal";
+import type { SortConfig, FilterGroup, Column } from "~/types/table";
 
 interface TableNavigationProps {
   children: React.ReactNode;
   searchQuery?: string;
   onSearchChange?: (query: string) => void;
   onHideFieldsClick?: () => void;
-  columns?: Array<{ id: string; name: string; type: string }>;
+  columns?: Column[];
   columnVisibility?: Record<string, boolean>;
   onColumnVisibilityChange?: (columnId: string, visible: boolean) => void;
+  sort?: SortConfig[];
+  onSortChange?: (sort: SortConfig[]) => void;
+  filters?: FilterGroup[];
+  onFiltersChange?: (filters: FilterGroup[]) => void;
 }
 
 export function TableNavigation({
@@ -20,12 +27,20 @@ export function TableNavigation({
   columns = [],
   columnVisibility = {},
   onColumnVisibilityChange,
+  sort = [],
+  onSortChange,
+  filters = [],
+  onFiltersChange,
 }: TableNavigationProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [showHideFieldsDropdown, setShowHideFieldsDropdown] = useState(false);
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const hideFieldsRef = useRef<HTMLDivElement>(null);
+  const sortRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -41,6 +56,15 @@ export function TableNavigation({
       ) {
         setShowHideFieldsDropdown(false);
       }
+      if (sortRef.current && !sortRef.current.contains(event.target as Node)) {
+        setShowSortDropdown(false);
+      }
+      if (
+        filterRef.current &&
+        !filterRef.current.contains(event.target as Node)
+      ) {
+        setShowFilterDropdown(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -54,10 +78,16 @@ export function TableNavigation({
     (column) => !columnVisibility[column.id],
   ).length;
 
+  // Calculate active filter count
+  const activeFilterCount = filters.reduce(
+    (count, group) => count + group.conditions.length,
+    0,
+  );
+
   return (
     <div className="flex h-full flex-col">
       {/* Horizontal Toolbar */}
-      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
+      <div className="flex max-h-12 items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
         <div className="flex items-center space-x-4">
           {/* Toggle button */}
           <button
@@ -91,14 +121,14 @@ export function TableNavigation({
             />
           </div>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center space-x-1">
           {/* Action buttons */}
           <div className="relative" ref={hideFieldsRef}>
             <button
               onClick={() => setShowHideFieldsDropdown(!showHideFieldsDropdown)}
               className={`flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium ${
                 hiddenCount > 0
-                  ? "bg-blue-400/60 text-white hover:border hover:border-blue-800"
+                  ? "bg-[#c4edfd] text-gray-700 hover:bg-blue-200"
                   : "text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -107,7 +137,6 @@ export function TableNavigation({
                 alt="Hide fields"
                 width={16}
                 height={16}
-                className={hiddenCount > 0 ? "invert" : ""}
               />
               <span>
                 {hiddenCount > 0 ? `${hiddenCount} hidden` : "Hide fields"}
@@ -125,23 +154,68 @@ export function TableNavigation({
               />
             )}
           </div>
-          <button className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
-            <Image
-              src="/icons/filter.svg"
-              alt="Filter"
-              width={16}
-              height={16}
-            />
-            <span>Filter</span>
-          </button>
+          <div className="relative" ref={filterRef}>
+            <button
+              onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+              className={`flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium ${
+                activeFilterCount > 0
+                  ? "bg-green-100 hover:bg-green-200"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Image
+                src="/icons/filter.svg"
+                alt="Filter"
+                width={16}
+                height={16}
+              />
+              <span>
+                {activeFilterCount > 0
+                  ? `Filtered by ${activeFilterCount}`
+                  : "Filter"}
+              </span>
+            </button>
+
+            {showFilterDropdown && (
+              <FilterDropdown
+                isOpen={showFilterDropdown}
+                onClose={() => setShowFilterDropdown(false)}
+                columns={columns}
+                filters={filters}
+                onFiltersChange={onFiltersChange ?? (() => undefined)}
+              />
+            )}
+          </div>
           <button className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
             <Image src="/icons/group.svg" alt="Group" width={16} height={16} />
             <span>Group</span>
           </button>
-          <button className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
-            <Image src="/icons/sort.svg" alt="Sort" width={16} height={16} />
-            <span>Sort</span>
-          </button>
+          <div className="relative" ref={sortRef}>
+            <button
+              onClick={() => setShowSortDropdown(!showSortDropdown)}
+              className={`flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium ${
+                sort.length > 0
+                  ? "bg-orange-100 hover:bg-orange-200"
+                  : "text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              <Image src="/icons/sort.svg" alt="Sort" width={16} height={16} />
+              <span>
+                {sort.length > 0
+                  ? `Sorted by ${sort.length} field${sort.length > 1 ? "s" : ""}`
+                  : "Sort"}
+              </span>
+            </button>
+
+            {showSortDropdown && (
+              <SortDropdown
+                columns={columns}
+                sort={sort}
+                onSortChange={onSortChange ?? (() => undefined)}
+                onClose={() => setShowSortDropdown(false)}
+              />
+            )}
+          </div>
           <button className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
             <Image src="/icons/color.svg" alt="Color" width={16} height={16} />
             <span>Color</span>

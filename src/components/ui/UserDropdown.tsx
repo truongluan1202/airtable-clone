@@ -39,9 +39,9 @@ export function UserDropdown({
     <div className={`relative ${className}`} ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 transition-colors hover:bg-blue-700"
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-[#37c9ff] transition-colors hover:bg-blue-400"
       >
-        <span className="text-sm font-medium text-white">
+        <span className="text-sm font-medium text-black">
           {session?.user?.name?.charAt(0) ?? "U"}
         </span>
       </button>

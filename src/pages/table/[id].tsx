@@ -6,6 +6,7 @@ import { api } from "~/utils/api";
 import { DataGrid } from "~/components/table/DataGrid";
 import { TableNavigation } from "~/components/table/TableNavigation";
 import { TableViewLayout } from "~/components/layout";
+import type { SortConfig, FilterGroup } from "~/types/table";
 
 export default function TableDetail() {
   const { data: session, status } = useSession();
@@ -16,6 +17,8 @@ export default function TableDetail() {
   const [columnVisibility, setColumnVisibility] = useState<
     Record<string, boolean>
   >({});
+  const [sort, setSort] = useState<SortConfig[]>([]);
+  const [filters, setFilters] = useState<FilterGroup[]>([]);
 
   const { data: table, isLoading: tableLoading } = api.table.getById.useQuery(
     { id: id as string },
@@ -164,6 +167,10 @@ export default function TableDetail() {
               [columnId]: visible,
             }));
           }}
+          sort={sort}
+          onSortChange={setSort}
+          filters={filters}
+          onFiltersChange={setFilters}
         >
           <DataGrid
             data={gridData}
@@ -178,6 +185,8 @@ export default function TableDetail() {
                 [columnId]: visible,
               }));
             }}
+            sort={sort}
+            filters={filters}
           />
         </TableNavigation>
       </TableViewLayout>
