@@ -68,6 +68,7 @@ export function DataGrid({
     isCellHighlighted,
     isColumnSorted,
     getColumnSortDirection,
+    isColumnFiltered,
   } = useDataGridLogic(stableData, columns, searchQuery, sort, filters);
 
   // Handle click outside to close dropdowns and context menu
@@ -157,6 +158,7 @@ export function DataGrid({
         <TableHeader
           headerGroups={table.getHeaderGroups()}
           isColumnSorted={isColumnSorted}
+          isColumnFiltered={isColumnFiltered}
         />
         <TableBody
           rows={table.getRowModel().rows}
@@ -164,6 +166,7 @@ export function DataGrid({
           selectedCell={selectedCell}
           searchQuery={searchQuery}
           isColumnSorted={isColumnSorted}
+          isColumnFiltered={isColumnFiltered}
           isCellHighlighted={isCellHighlighted}
           getCellValue={getCellValue}
           handleContextMenu={handleContextMenu}

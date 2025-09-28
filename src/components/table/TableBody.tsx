@@ -9,6 +9,7 @@ interface TableBodyProps {
   selectedCell: CellSelection | null;
   searchQuery: string;
   isColumnSorted: (columnId: string) => boolean;
+  isColumnFiltered: (columnId: string) => boolean;
   isCellHighlighted: (
     rowId: string,
     columnId: string,
@@ -30,6 +31,7 @@ export function TableBody({
   selectedCell,
   searchQuery,
   isColumnSorted,
+  isColumnFiltered,
   isCellHighlighted,
   getCellValue,
   handleContextMenu,
@@ -49,6 +51,7 @@ export function TableBody({
               selectedCell?.rowId === row.original.id &&
               selectedCell?.columnId === cell.column.id;
             const columnIsSorted = isColumnSorted(cell.column.id);
+            const columnIsFiltered = isColumnFiltered(cell.column.id);
 
             // Get the column name for data access (row data is keyed by column names, not IDs)
             const columnName = columns.find(
@@ -103,8 +106,8 @@ export function TableBody({
                 className={`px-3 py-2 ${
                   isSelected ? "ring-2 ring-blue-500 ring-inset" : ""
                 } ${columnIsSorted ? "bg-[#fff2e9]" : ""} ${
-                  isSearchHighlighted ? "!bg-[#f6c974]" : ""
-                }`}
+                  columnIsFiltered ? "!bg-[#ecfcec]" : ""
+                } ${isSearchHighlighted ? "!bg-[#fff3d3]" : ""}`}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>

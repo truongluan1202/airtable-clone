@@ -122,17 +122,20 @@ export function FilterDropdown({
   };
 
   const removeCondition = (groupId: string, conditionId: string) => {
-    setLocalFilters((prev) =>
-      prev.map((group) =>
-        group.id === groupId
-          ? {
-              ...group,
-              conditions: group.conditions.filter(
-                (condition) => condition.id !== conditionId,
-              ),
-            }
-          : group,
-      ),
+    setLocalFilters(
+      (prev) =>
+        prev
+          .map((group) =>
+            group.id === groupId
+              ? {
+                  ...group,
+                  conditions: group.conditions.filter(
+                    (condition) => condition.id !== conditionId,
+                  ),
+                }
+              : group,
+          )
+          .filter((group) => group.conditions.length > 0), // Remove empty groups
     );
   };
 
@@ -259,7 +262,7 @@ export function FilterDropdown({
                     </div>
 
                     {/* Operator selector */}
-                    <div className="w-28">
+                    <div className="w-31">
                       <select
                         value={condition.operator}
                         onChange={(e) =>

@@ -213,10 +213,21 @@ export function useDataGridLogic(
     [sort],
   );
 
+  // Check if a column is filtered
+  const isColumnFiltered = useCallback(
+    (columnId: string) => {
+      return filters.some((group) =>
+        group.conditions.some((condition) => condition.columnId === columnId),
+      );
+    },
+    [filters],
+  );
+
   return {
     filteredData,
     isCellHighlighted,
     isColumnSorted,
     getColumnSortDirection,
+    isColumnFiltered,
   };
 }

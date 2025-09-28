@@ -224,10 +224,13 @@ export function TableViewLayout({
                               "after:border-r after:border-l after:border-gray-300",
                               "after:pointer-events-none",
                             ].join(" ")
-                          : "border border-transparent text-gray-600 hover:bg-blue-100 hover:text-gray-800",
+                          : "relative flex items-center text-gray-600 hover:bg-blue-100 hover:text-gray-800",
                       ].join(" ")}
                     >
                       {table.name}
+                      {!active && (
+                        <span className="absolute top-3 right-[-1] bottom-3 w-px bg-gray-300"></span>
+                      )}
                     </button>
                   );
                 })}
