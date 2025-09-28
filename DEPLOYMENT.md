@@ -12,11 +12,11 @@ NEXTAUTH_SECRET=your_nextauth_secret
 NEXTAUTH_URL=https://your-app.vercel.app
 ```
 
-### 2. Database Migration & Seeding
+### 2. Database Schema & Seeding
 
 The deployment is now configured to automatically:
 
-1. **Run migrations** during build (`prisma migrate deploy`)
+1. **Push schema changes** during build (`prisma db push`)
 2. **Seed the database** with initial data (`prisma db seed`)
 
 ### 3. What Gets Created
@@ -34,7 +34,7 @@ The seed script automatically creates:
 The build process now runs:
 
 ```bash
-pnpm prisma migrate deploy && pnpm build
+pnpm prisma db push && pnpm build
 ```
 
 And after build:
@@ -55,6 +55,7 @@ prisma db seed
 
 - **"type already exists" error**: The database schema already exists but migrations are out of sync
 - **Solution**: Run `npx prisma migrate resolve --applied <migration_name>` to mark migrations as applied
+- **Failed migrations in production**: Use `prisma db push` instead of `prisma migrate deploy` for simpler deployment
 
 **If no workspace appears:**
 
