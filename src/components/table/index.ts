@@ -2,6 +2,7 @@ export { DataGrid } from "./DataGrid";
 export { TableNavigation } from "./TableNavigation";
 export { TableHeader } from "./TableHeader";
 export { TableBody } from "./TableBody";
+export { VirtualizedTableBody } from "./VirtualizedTableBody";
 export { EditableCell } from "./EditableCell";
 export { SearchAndFilterBar } from "./SearchAndFilterBar";
 export { ContextMenu } from "./ContextMenu";

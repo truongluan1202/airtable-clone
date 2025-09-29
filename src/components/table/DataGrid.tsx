@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { useReactTable, getCoreRowModel } from "@tanstack/react-table";
 import { useDataGridState } from "./hooks/useDataGridState";
 import { useDataGridMutations } from "./hooks/useDataGridMutations";
@@ -8,6 +8,7 @@ import { useStableRowOrder } from "./hooks/useStableRowOrder";
 import * as TableColumns from "./useTableColumns";
 import { TableHeader } from "./TableHeader";
 import { TableBody } from "./TableBody";
+import { VirtualizedTableBody } from "./VirtualizedTableBody";
 import { DataGridContextMenu } from "./DataGridContextMenu";
 import type { DataGridProps } from "./types";
 import type { FilterGroup } from "~/types/table";
@@ -22,11 +23,23 @@ export function DataGrid({
   onColumnVisibilityChange: _onColumnVisibilityChange,
   sort = [],
   filters = [],
-}: DataGridProps & { filters?: FilterGroup[] }) {
+  enableVirtualization = true,
+  // Infinite scroll props
+  hasNextPage,
+  fetchNextPage,
+  isFetchingNextPage,
+}: DataGridProps & {
+  filters?: FilterGroup[];
+  enableVirtualization?: boolean;
+  hasNextPage?: boolean;
+  fetchNextPage?: () => void;
+  isFetchingNextPage?: boolean;
+}) {
   console.log("🔥 DataGrid rendered with tableId:", tableId);
   console.log("🔍 Search query in DataGrid:", searchQuery);
 
   const tableRef = useRef<HTMLTableElement>(null);
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
   // Maintain stable row order to prevent reordering on cell clicks
   const stableData = useStableRowOrder(data);
@@ -125,6 +138,7 @@ export function DataGrid({
     setOpenColumnDropdown,
     isColumnSorted,
     getColumnSortDirection,
+    isRowHovered: (rowId: string) => hoveredRowId === rowId,
   });
 
   // Keyboard navigation hook
@@ -147,11 +161,63 @@ export function DataGrid({
     },
   });
 
+  if (enableVirtualization) {
+    return (
+      <div className="h-full">
+        {/* Header - always visible */}
+        <div className="border-b border-gray-200">
+          <table style={{ tableLayout: "fixed", width: "auto" }}>
+            <TableHeader
+              headerGroups={table.getHeaderGroups()}
+              isColumnSorted={isColumnSorted}
+              isColumnFiltered={isColumnFiltered}
+            />
+          </table>
+        </div>
+
+        {/* Virtualized Body */}
+        <div onKeyDown={handleKeyDown} tabIndex={0}>
+          <VirtualizedTableBody
+            rows={table.getRowModel().rows}
+            columns={columns}
+            selectedCell={selectedCell}
+            searchQuery={searchQuery}
+            isColumnSorted={isColumnSorted}
+            isColumnFiltered={isColumnFiltered}
+            isCellHighlighted={isCellHighlighted}
+            getCellValue={getCellValue}
+            handleContextMenu={handleContextMenu}
+            handleAddRow={() => handleAddRow()}
+            visibleColumns={visibleColumns}
+            // Infinite scroll props
+            hasNextPage={hasNextPage}
+            fetchNextPage={fetchNextPage}
+            isFetchingNextPage={isFetchingNextPage}
+            // Row hover state
+            onRowHover={setHoveredRowId}
+          />
+        </div>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <DataGridContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            rowId={contextMenu.rowId}
+            onDeleteRow={handleDeleteRow}
+            onClose={() => setContextMenu(null)}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto">
       <table
         ref={tableRef}
         className="w-full"
+        style={{ tableLayout: "fixed" }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
@@ -172,6 +238,7 @@ export function DataGrid({
           handleContextMenu={handleContextMenu}
           handleAddRow={() => handleAddRow()}
           visibleColumns={visibleColumns}
+          onRowHover={setHoveredRowId}
         />
       </table>
 

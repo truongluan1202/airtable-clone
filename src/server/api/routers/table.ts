@@ -1,6 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { faker } from "@faker-js/faker";
@@ -83,6 +80,86 @@ export const tableRouter = createTRPCRouter({
       }
 
       return table;
+    }),
+
+  // Get table data with cursor-based pagination for infinite scroll
+  getByIdPaginated: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        limit: z.number().min(1).max(100).default(50),
+        cursor: z.string().nullish(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const table = await ctx.prisma.table.findFirst({
+        where: {
+          id: input.id,
+          base: {
+            userId: ctx.session.user.id,
+          },
+        },
+        include: {
+          base: true,
+          columns: {
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+        },
+      });
+
+      if (!table) {
+        throw new Error("Table not found");
+      }
+
+      // Get paginated rows
+      const rows = await ctx.prisma.row.findMany({
+        where: {
+          tableId: input.id,
+        },
+        include: {
+          cells: true,
+        },
+        orderBy: [
+          {
+            createdAt: "asc",
+          },
+          {
+            id: "asc",
+          },
+        ],
+        take: input.limit + 1, // Take one extra to check if there are more
+        ...(input.cursor && {
+          cursor: {
+            id: input.cursor,
+          },
+          skip: 1, // Skip the cursor itself
+        }),
+      });
+
+      // Check if there are more rows
+      const hasMore = rows.length > input.limit;
+      const nextCursor = hasMore ? rows[input.limit]?.id : null; // Use the extra row as next cursor
+
+      // Remove the extra row if it exists
+      const actualRows = hasMore ? rows.slice(0, input.limit) : rows;
+
+      console.log("🔍 Pagination debug:", {
+        inputLimit: input.limit,
+        rowsReturned: rows.length,
+        hasMore,
+        nextCursor,
+        actualRowsCount: actualRows.length,
+        cursor: input.cursor,
+      });
+
+      return {
+        table,
+        rows: actualRows,
+        nextCursor,
+        hasMore,
+      };
     }),
 
   // Create a new table with default columns and sample data
@@ -275,7 +352,7 @@ export const tableRouter = createTRPCRouter({
     .input(
       z.object({
         tableId: z.string(),
-        count: z.number().min(1).max(1000).default(100),
+        count: z.number().min(1).max(100000).default(100),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -296,83 +373,100 @@ export const tableRouter = createTRPCRouter({
         throw new Error("Table not found");
       }
 
-      // Create rows
-      const sampleRows = Array.from({ length: input.count }, () => ({
-        tableId: table.id,
-        cache: {},
-        search: "",
-      }));
+      // For large datasets, use batch processing
+      const batchSize = 1000;
+      const totalBatches = Math.ceil(input.count / batchSize);
 
-      await ctx.prisma.row.createMany({
-        data: sampleRows,
-      });
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const batchStart = batchIndex * batchSize;
+        const batchEnd = Math.min(batchStart + batchSize, input.count);
+        const batchCount = batchEnd - batchStart;
 
-      // Get the created rows
-      const createdRows = await ctx.prisma.row.findMany({
-        where: { tableId: table.id },
-        orderBy: { createdAt: "desc" },
-        take: input.count,
-      });
+        // Create rows for this batch
+        const sampleRows = Array.from({ length: batchCount }, () => ({
+          tableId: table.id,
+          cache: {},
+          search: "",
+        }));
 
-      // Create cells with sample data
-      const cells = [];
-      for (const row of createdRows) {
-        for (const column of table.columns) {
-          let value;
-          if (column.name === "Name") {
-            value = faker.person.fullName();
-          } else if (column.name === "Email") {
-            value = faker.internet.email();
-          } else if (column.name === "Age") {
-            value = faker.number.int({ min: 18, max: 80 });
-          } else {
-            // Generic data based on column type
-            if (column.type === "TEXT") {
-              value = faker.lorem.words(2);
-            } else if (column.type === "NUMBER") {
-              value = faker.number.int({ min: 1, max: 1000 });
+        await ctx.prisma.row.createMany({
+          data: sampleRows,
+        });
+
+        // Get the created rows for this batch
+        const createdRows = await ctx.prisma.row.findMany({
+          where: { tableId: table.id },
+          orderBy: { createdAt: "desc" },
+          take: batchCount,
+        });
+
+        // Create cells with sample data for this batch
+        const cells = [];
+        for (const row of createdRows) {
+          for (const column of table.columns) {
+            let value;
+            if (column.name === "Name") {
+              value = faker.person.fullName();
+            } else if (column.name === "Email") {
+              value = faker.internet.email();
+            } else if (column.name === "Age") {
+              value = faker.number.int({ min: 18, max: 80 });
+            } else {
+              // Generic data based on column type
+              if (column.type === "TEXT") {
+                // Create longer text content for testing truncation
+                value = faker.lorem.paragraphs(1, "\n");
+              } else if (column.type === "NUMBER") {
+                value = faker.number.int({ min: 1, max: 1000 });
+              }
+            }
+
+            cells.push({
+              rowId: row.id,
+              columnId: column.id,
+              vText: column.type === "TEXT" ? value : null,
+              vNumber: column.type === "NUMBER" ? value : null,
+            });
+          }
+        }
+
+        await ctx.prisma.cell.createMany({
+          data: cells,
+        });
+
+        // Update row cache and search for this batch
+        const rowUpdates = [];
+        for (const row of createdRows) {
+          const rowCells = cells.filter((cell) => cell.rowId === row.id);
+          const cache: Record<string, string | number | null> = {};
+          const searchTexts: string[] = [];
+
+          for (const cell of rowCells) {
+            const column = table.columns.find(
+              (col: { id: string }) => col.id === cell.columnId,
+            );
+            if (column) {
+              const value = cell.vText ?? cell.vNumber;
+              cache[column.id] = value ?? null;
+              if (value) {
+                searchTexts.push(String(value));
+              }
             }
           }
 
-          cells.push({
-            rowId: row.id,
-            columnId: column.id,
-            vText: column.type === "TEXT" ? value : null,
-            vNumber: column.type === "NUMBER" ? value : null,
+          rowUpdates.push({
+            where: { id: row.id },
+            data: {
+              cache,
+              search: searchTexts.join(" "),
+            },
           });
         }
-      }
 
-      await ctx.prisma.cell.createMany({
-        data: cells,
-      });
-
-      // Update row cache and search
-      for (const row of createdRows) {
-        const rowCells = cells.filter((cell) => cell.rowId === row.id);
-        const cache: Record<string, string | number | null> = {};
-        const searchTexts: string[] = [];
-
-        for (const cell of rowCells) {
-          const column = table.columns.find(
-            (col: { id: string }) => col.id === cell.columnId,
-          );
-          if (column) {
-            const value = cell.vText ?? cell.vNumber;
-            cache[column.id] = value ?? null;
-            if (value) {
-              searchTexts.push(String(value));
-            }
-          }
-        }
-
-        await ctx.prisma.row.update({
-          where: { id: row.id },
-          data: {
-            cache,
-            search: searchTexts.join(" "),
-          },
-        });
+        // Batch update rows
+        await Promise.all(
+          rowUpdates.map((update) => ctx.prisma.row.update(update)),
+        );
       }
 
       return { success: true, rowsAdded: input.count };
@@ -541,6 +635,18 @@ export const tableRouter = createTRPCRouter({
 
       if (!table) {
         throw new Error("Table not found");
+      }
+
+      // Check if column name already exists
+      const existingColumn = await ctx.prisma.column.findFirst({
+        where: {
+          tableId: input.tableId,
+          name: input.name,
+        },
+      });
+
+      if (existingColumn) {
+        throw new Error(`Column "${input.name}" already exists in this table`);
       }
 
       // Create the column

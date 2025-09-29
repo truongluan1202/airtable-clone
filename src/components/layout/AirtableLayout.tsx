@@ -72,15 +72,15 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                 <Image
                   src="/icons/search.svg"
                   alt="Search"
-                  width={16}
-                  height={16}
+                  width={13}
+                  height={13}
                   className="text-gray-400"
                 />
               </div>
               <input
                 type="text"
                 placeholder="Search..."
-                className="block w-full rounded-4xl border border-gray-300 bg-white py-2 pr-12 pl-10 leading-5 placeholder-gray-500 focus:border-blue-500 focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                className="block w-full rounded-4xl border border-gray-300 bg-white py-1 pr-12 pl-10 leading-5 placeholder-gray-500 focus:border-blue-500 focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:outline-none"
               />
               <div className="absolute inset-y-0 right-0 flex items-center pr-3">
                 <span className="text-xs text-gray-400">⌘K</span>

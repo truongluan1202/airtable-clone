@@ -20,10 +20,38 @@ export default function TableDetail() {
   const [sort, setSort] = useState<SortConfig[]>([]);
   const [filters, setFilters] = useState<FilterGroup[]>([]);
 
-  const { data: table, isLoading: tableLoading } = api.table.getById.useQuery(
-    { id: id as string },
-    { enabled: !!id },
+  // Use infinite query for paginated data
+  const {
+    data: infiniteData,
+    isLoading: tableLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = api.table.getByIdPaginated.useInfiniteQuery(
+    {
+      id: id as string,
+      limit: 50,
+    },
+    {
+      enabled: !!id,
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
+    },
   );
+
+  // Flatten all pages into a single array of rows
+  const allRows = infiniteData?.pages.flatMap((page) => page.rows) ?? [];
+  const table = infiniteData?.pages[0]?.table;
+
+  // Debug logging
+  console.log("📊 Infinite query state:", {
+    pagesCount: infiniteData?.pages.length ?? 0,
+    totalRows: allRows.length,
+    hasNextPage,
+    isFetchingNextPage,
+    lastPageCursor:
+      infiniteData?.pages[infiniteData.pages.length - 1]?.nextCursor,
+    tableLoading,
+  });
 
   // Initialize column visibility when table data loads
   useEffect(() => {
@@ -43,11 +71,29 @@ export default function TableDetail() {
       { enabled: !!table?.baseId && !!table },
     );
 
+  const utils = api.useUtils();
+
   const addSampleData = api.table.addSampleData.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("✅ Sample data added successfully:", data);
       setShowAddDataModal(false);
-      // Refetch table data
-      window.location.reload();
+      // Invalidate and refetch the infinite query
+      void utils.table.getByIdPaginated.invalidate();
+      // Also refetch the base tables query
+      void utils.table.getByBaseId.invalidate();
+    },
+  });
+
+  const addTestRows = api.table.addSampleData.useMutation({
+    onSuccess: (data) => {
+      console.log("✅ Test rows added successfully:", data);
+      // Invalidate and refetch the infinite query
+      void utils.table.getByIdPaginated.invalidate();
+      // Also refetch the base tables query
+      void utils.table.getByBaseId.invalidate();
+    },
+    onError: (error) => {
+      console.error("Error adding rows:", error);
     },
   });
 
@@ -93,20 +139,19 @@ export default function TableDetail() {
   }
 
   // Transform table data to match DataGrid format
-  const gridData =
-    table?.rows?.map((row: any) => {
-      // Create a dynamic object based on the actual table columns
-      const rowData: any = { id: row.id };
+  const gridData = allRows.map((row: any) => {
+    // Create a dynamic object based on the actual table columns
+    const rowData: any = { id: row.id };
 
-      // Map each column to its value from the cache
-      table?.columns?.forEach((column: any) => {
-        const value = row.cache?.[column.id];
-        // Only use cached values - don't generate fake data on refresh
-        rowData[column.name] = value ?? "";
-      });
+    // Map each column to its value from the cache
+    table?.columns?.forEach((column: any) => {
+      const value = row.cache?.[column.id];
+      // Only use cached values - don't generate fake data on refresh
+      rowData[column.name] = value ?? "";
+    });
 
-      return rowData;
-    }) ?? [];
+    return rowData;
+  });
 
   // Use actual tables from the database
   const tables =
@@ -155,29 +200,32 @@ export default function TableDetail() {
         tables={tables}
         onTableSelect={handleTableSelect}
         onTableCreated={handleTableCreated}
+        onAddTestRows={(count) => {
+          if (count >= 100000) {
+            if (
+              confirm(
+                "This will add 100,000 rows to your table. This may take several minutes. Continue?",
+              )
+            ) {
+              addTestRows.mutate({
+                tableId: table.id,
+                count,
+              });
+            }
+          } else {
+            addTestRows.mutate({
+              tableId: table.id,
+              count,
+            });
+          }
+        }}
+        isAddingRows={addTestRows.isPending}
       >
-        <TableNavigation
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          columns={table?.columns}
-          columnVisibility={columnVisibility}
-          onColumnVisibilityChange={(columnId, visible) => {
-            setColumnVisibility((prev) => ({
-              ...prev,
-              [columnId]: visible,
-            }));
-          }}
-          sort={sort}
-          onSortChange={setSort}
-          filters={filters}
-          onFiltersChange={setFilters}
-        >
-          <DataGrid
-            data={gridData}
-            columns={table?.columns}
-            tableId={table?.id}
+        <div className="flex h-full flex-col">
+          <TableNavigation
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
+            columns={table?.columns}
             columnVisibility={columnVisibility}
             onColumnVisibilityChange={(columnId, visible) => {
               setColumnVisibility((prev) => ({
@@ -186,9 +234,33 @@ export default function TableDetail() {
               }));
             }}
             sort={sort}
+            onSortChange={setSort}
             filters={filters}
-          />
-        </TableNavigation>
+            onFiltersChange={setFilters}
+          >
+            <DataGrid
+              data={gridData}
+              columns={table?.columns}
+              tableId={table?.id}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={(columnId, visible) => {
+                setColumnVisibility((prev) => ({
+                  ...prev,
+                  [columnId]: visible,
+                }));
+              }}
+              sort={sort}
+              filters={filters}
+              enableVirtualization={true}
+              // Infinite scroll props
+              hasNextPage={hasNextPage}
+              fetchNextPage={fetchNextPage}
+              isFetchingNextPage={isFetchingNextPage}
+            />
+          </TableNavigation>
+        </div>
       </TableViewLayout>
 
       {/* Add Sample Data Modal */}

@@ -6,6 +6,36 @@ import { AddColumnDropdown } from "./AddColumnDropdown";
 import { ColumnDropdown } from "./ColumnDropdown";
 import type { DataRow, Column } from "./types";
 
+// Component for the select cell with hover effect
+function SelectCell({
+  rowIndex,
+  rowId,
+  isSelected,
+  onToggle,
+  isRowHovered,
+}: {
+  rowIndex: number;
+  rowId: string;
+  isSelected: boolean;
+  onToggle: (rowId: string) => void;
+  isRowHovered: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-center">
+      {isRowHovered ? (
+        <button
+          onClick={() => onToggle(rowId)}
+          className="flex h-4 w-4 items-center justify-center rounded border border-gray-300 bg-white shadow-sm hover:border-gray-400 hover:bg-gray-50"
+        >
+          {isSelected && <div className="h-2 w-2 rounded-sm bg-blue-600"></div>}
+        </button>
+      ) : (
+        <span className="text-xs text-gray-500">{rowIndex + 1}</span>
+      )}
+    </div>
+  );
+}
+
 interface UseTableColumnsProps {
   visibleColumns: Column[];
   selectedRows: Set<string>;
@@ -29,6 +59,7 @@ interface UseTableColumnsProps {
   setOpenColumnDropdown: (columnId: string | null) => void;
   isColumnSorted: (columnId: string) => boolean;
   getColumnSortDirection: (columnId: string) => "asc" | "desc" | undefined;
+  isRowHovered?: (rowId: string) => boolean;
 }
 
 export function useTableColumns({
@@ -50,6 +81,7 @@ export function useTableColumns({
   setOpenColumnDropdown,
   isColumnSorted,
   getColumnSortDirection,
+  isRowHovered,
 }: UseTableColumnsProps): ColumnDef<DataRow, any>[] {
   const columnHelper = createColumnHelper<DataRow>();
 
@@ -58,36 +90,20 @@ export function useTableColumns({
       columnHelper.accessor("id", {
         id: "select",
         header: () => (
-          <Image
-            src="/icons/checkbox.svg"
-            alt="Select all"
-            width={16}
-            height={16}
-            className="text-gray-400"
-          />
-        ),
-        cell: ({ row }) => (
-          <div className="flex items-center">
-            <span className="mr-2 text-sm text-gray-500">{row.index + 1}</span>
-            <button
-              onClick={() => toggleRowSelection(row.original.id)}
-              className="p-1"
-            >
-              <Image
-                src="/icons/checkbox.svg"
-                alt="Select row"
-                width={16}
-                height={16}
-                className={`${
-                  selectedRows.has(row.original.id)
-                    ? "text-blue-600"
-                    : "text-gray-400"
-                }`}
-              />
-            </button>
+          <div className="flex items-center justify-center">
+            <div className="h-4 w-4 rounded border border-gray-300 bg-white shadow-sm"></div>
           </div>
         ),
-        size: 48,
+        cell: ({ row }) => (
+          <SelectCell
+            rowIndex={row.index}
+            rowId={row.original.id}
+            isSelected={selectedRows.has(row.original.id)}
+            onToggle={toggleRowSelection}
+            isRowHovered={isRowHovered?.(row.original.id) ?? false}
+          />
+        ),
+        size: 60,
       }),
     ];
 
@@ -102,28 +118,27 @@ export function useTableColumns({
 
             return (
               <div className="relative flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <span className={isSorted ? "font-semibold" : ""}>
-                    {column.name}
-                  </span>
+                <div className="flex items-center space-x-1">
+                  {/* Column type icon */}
                   {column.type === "TEXT" && (
-                    <Image
-                      src="/icons/document.svg"
-                      alt="Text"
-                      width={12}
-                      height={12}
-                      className="text-gray-400"
-                    />
+                    <div className="flex h-4 w-4 items-center justify-center">
+                      <span className="text-xs text-gray-600">A</span>
+                    </div>
                   )}
                   {column.type === "NUMBER" && (
-                    <Image
-                      src="/icons/checkbox.svg"
-                      alt="Number"
-                      width={12}
-                      height={12}
-                      className="text-gray-400"
-                    />
+                    <div className="flex h-4 w-4 items-center justify-center">
+                      <span className="text-xs text-gray-600">#</span>
+                    </div>
                   )}
+
+                  {/* Column name */}
+                  <span
+                    className={`text-xs font-medium text-gray-900 ${isSorted ? "font-semibold" : ""}`}
+                  >
+                    {column.name}
+                  </span>
+
+                  {/* Sort indicator */}
                   {isSorted && (
                     <span className="text-xs text-orange-600">
                       {sortDirection === "asc" ? "↑" : "↓"}
@@ -137,13 +152,13 @@ export function useTableColumns({
                       openColumnDropdown === column.id ? null : column.id,
                     );
                   }}
-                  className="flex h-6 w-6 items-center justify-center rounded hover:bg-gray-100"
+                  className="flex h-4 w-4 items-center justify-center rounded hover:bg-gray-100"
                 >
                   <Image
                     src="/icons/chevron-down.svg"
                     alt="option dropdown"
-                    width={12}
-                    height={12}
+                    width={10}
+                    height={10}
                     className="text-gray-400"
                   />
                 </button>
@@ -182,7 +197,7 @@ export function useTableColumns({
               />
             );
           },
-          size: 150,
+          size: 200,
         }),
       );
     });
@@ -195,7 +210,7 @@ export function useTableColumns({
           <div className="relative">
             <button
               onClick={() => setShowAddColumnDropdown(!showAddColumnDropdown)}
-              className="p-1 text-gray-400 hover:text-gray-600"
+              className="p-1 text-gray-400 hover:text-gray-900"
             >
               <Image
                 src="/icons/plus.svg"
@@ -213,7 +228,7 @@ export function useTableColumns({
           </div>
         ),
         cell: () => null,
-        size: 48,
+        size: 60,
       }),
     );
 
@@ -238,6 +253,7 @@ export function useTableColumns({
     setOpenColumnDropdown,
     isColumnSorted,
     getColumnSortDirection,
+    isRowHovered,
   ]);
 
   return tableColumns;

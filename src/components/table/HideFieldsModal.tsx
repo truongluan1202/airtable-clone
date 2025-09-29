@@ -28,11 +28,6 @@ export function HideFieldsDropdown({
     column.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
-  // Count hidden columns
-  const hiddenCount = columns.filter(
-    (column) => !visibleColumns[column.id],
-  ).length;
-
   // Handle clicks outside dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

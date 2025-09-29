@@ -9,6 +9,7 @@ export function useDataGridMutations(tableId?: string) {
     onSuccess: (data) => {
       console.log("✅ Cell updated successfully:", data);
       void utils.table.getById.invalidate();
+      void utils.table.getByIdPaginated.invalidate();
     },
     onError: (error) => {
       console.error("❌ Failed to update cell:", error);
@@ -19,9 +20,14 @@ export function useDataGridMutations(tableId?: string) {
     onSuccess: (data) => {
       console.log("✅ Column added successfully:", data);
       void utils.table.getById.invalidate();
+      // For infinite query, we need to invalidate to refetch all pages with new column structure
+      void utils.table.getByIdPaginated.invalidate();
     },
     onError: (error) => {
       console.error("❌ Failed to add column:", error);
+      // Show user-friendly error message
+      const errorMessage = error.message || "Failed to add column";
+      alert(`Error: ${errorMessage}`);
     },
   });
 
@@ -29,6 +35,8 @@ export function useDataGridMutations(tableId?: string) {
     onSuccess: (data) => {
       console.log("✅ Row added successfully:", data);
       void utils.table.getById.invalidate();
+      // For infinite query, we need to invalidate to refetch all pages
+      void utils.table.getByIdPaginated.invalidate();
     },
     onError: (error) => {
       console.error("❌ Failed to add row:", error);
@@ -39,7 +47,7 @@ export function useDataGridMutations(tableId?: string) {
     onSuccess: (data) => {
       console.log("✅ Row deleted successfully:", data);
       void utils.table.getById.invalidate();
-      void utils.table.getById.refetch();
+      void utils.table.getByIdPaginated.invalidate();
     },
     onError: (error) => {
       console.error("❌ Failed to delete row:", error);
@@ -54,7 +62,7 @@ export function useDataGridMutations(tableId?: string) {
     onSuccess: (data) => {
       console.log("✅ Column deleted successfully:", data);
       void utils.table.getById.invalidate();
-      void utils.table.getById.refetch();
+      void utils.table.getByIdPaginated.invalidate();
     },
     onError: (error) => {
       console.error("❌ Failed to delete column:", error);

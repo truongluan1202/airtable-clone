@@ -75,7 +75,7 @@ export function TableNavigation({
 
   // Calculate hidden columns count
   const hiddenCount = columns.filter(
-    (column) => !columnVisibility[column.id],
+    (column) => columnVisibility[column.id] === false,
   ).length;
 
   // Calculate active filter count
@@ -87,28 +87,28 @@ export function TableNavigation({
   return (
     <div className="flex h-full flex-col">
       {/* Horizontal Toolbar */}
-      <div className="flex max-h-12 items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
+      <div className="flex max-h-11 items-center justify-between border-b border-gray-200 bg-white px-4 py-2">
         <div className="flex items-center space-x-4">
           {/* Toggle button */}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
           >
             <Image
               src="/icons/menu.svg"
               alt="Toggle sidebar"
-              width={20}
-              height={20}
+              width={16}
+              height={16}
             />
           </button>
 
           {/* Grid view with dropdown */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1">
             <Image
               src="/icons/grid-view.svg"
               alt="Grid View"
-              width={16}
-              height={16}
+              width={14}
+              height={14}
               className="text-gray-600"
             />
             <span className="text-sm font-medium text-gray-900">Grid view</span>
@@ -126,7 +126,7 @@ export function TableNavigation({
           <div className="relative" ref={hideFieldsRef}>
             <button
               onClick={() => setShowHideFieldsDropdown(!showHideFieldsDropdown)}
-              className={`flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium ${
+              className={`flex items-center space-x-2 rounded-md px-2 py-1.5 text-sm font-medium ${
                 hiddenCount > 0
                   ? "bg-[#c4edfd] text-gray-700 hover:bg-blue-200"
                   : "text-gray-700 hover:bg-gray-100"
@@ -157,7 +157,7 @@ export function TableNavigation({
           <div className="relative" ref={filterRef}>
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-              className={`flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium ${
+              className={`flex items-center space-x-2 rounded-md px-2 py-1.5 text-sm font-medium ${
                 activeFilterCount > 0
                   ? "bg-green-100 hover:bg-green-200"
                   : "text-gray-700 hover:bg-gray-100"
@@ -186,14 +186,14 @@ export function TableNavigation({
               />
             )}
           </div>
-          <button className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
+          <button className="flex items-center space-x-2 rounded-md px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
             <Image src="/icons/group.svg" alt="Group" width={16} height={16} />
             <span>Group</span>
           </button>
           <div className="relative" ref={sortRef}>
             <button
               onClick={() => setShowSortDropdown(!showSortDropdown)}
-              className={`flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium ${
+              className={`flex items-center space-x-2 rounded-md px-2 py-1.5 text-sm font-medium ${
                 sort.length > 0
                   ? "bg-orange-100 hover:bg-orange-200"
                   : "text-gray-700 hover:bg-gray-100"
@@ -216,7 +216,7 @@ export function TableNavigation({
               />
             )}
           </div>
-          <button className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
+          <button className="flex items-center space-x-2 rounded-md px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100">
             <Image src="/icons/color.svg" alt="Color" width={16} height={16} />
             <span>Color</span>
           </button>
@@ -299,12 +299,12 @@ export function TableNavigation({
               <Image
                 src="/icons/plus.svg"
                 alt="Create"
-                width={20}
-                height={20}
+                width={12}
+                height={12}
                 className="text-gray-600"
               />
               {!sidebarCollapsed && (
-                <span className="text-sm text-gray-700">Create new...</span>
+                <span className="text-xs text-gray-700">Create new...</span>
               )}
             </div>
 
@@ -313,12 +313,12 @@ export function TableNavigation({
               <Image
                 src="/icons/search.svg"
                 alt="Search"
-                width={20}
-                height={20}
+                width={12}
+                height={12}
                 className="text-gray-600"
               />
               {!sidebarCollapsed && (
-                <span className="text-sm text-gray-700">Find a view</span>
+                <span className="text-xs text-gray-700">Find a view</span>
               )}
             </div>
 
@@ -327,12 +327,12 @@ export function TableNavigation({
               <Image
                 src="/icons/grid-view.svg"
                 alt="Grid View"
-                width={20}
-                height={20}
+                width={12}
+                height={12}
                 className="text-gray-700"
               />
               {!sidebarCollapsed && (
-                <span className="text-sm font-medium text-gray-900">
+                <span className="text-xs font-medium text-gray-900">
                   Grid view
                 </span>
               )}

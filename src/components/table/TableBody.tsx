@@ -23,6 +23,8 @@ interface TableBodyProps {
   handleContextMenu: (e: React.MouseEvent, rowId: string) => void;
   handleAddRow: () => void;
   visibleColumns: Column[];
+  // Row hover state
+  onRowHover?: (rowId: string | null) => void;
 }
 
 export function TableBody({
@@ -37,6 +39,7 @@ export function TableBody({
   handleContextMenu,
   handleAddRow,
   visibleColumns,
+  onRowHover,
 }: TableBodyProps) {
   return (
     <tbody>
@@ -45,13 +48,21 @@ export function TableBody({
           key={row.id}
           className="border-b border-gray-200 hover:bg-gray-50"
           onContextMenu={(e) => handleContextMenu(e, row.original.id)}
+          onMouseEnter={() => onRowHover?.(row.original.id)}
+          onMouseLeave={() => onRowHover?.(null)}
         >
-          {row.getVisibleCells().map((cell, _columnIndex) => {
+          {row.getVisibleCells().map((cell, columnIndex) => {
+            // Skip rendering cells for the "addColumn" column
+            if (cell.column.id === "addColumn") {
+              return null;
+            }
+
             const isSelected =
               selectedCell?.rowId === row.original.id &&
               selectedCell?.columnId === cell.column.id;
             const columnIsSorted = isColumnSorted(cell.column.id);
             const columnIsFiltered = isColumnFiltered(cell.column.id);
+            const isFirstColumn = columnIndex === 0;
 
             // Get the column name for data access (row data is keyed by column names, not IDs)
             const columnName = columns.find(
@@ -103,11 +114,16 @@ export function TableBody({
             return (
               <td
                 key={cell.id}
-                className={`px-3 py-2 ${
+                className={`${!isFirstColumn ? "border-r" : ""} border-b border-gray-200 px-3 py-2 ${
                   isSelected ? "ring-2 ring-blue-500 ring-inset" : ""
                 } ${columnIsSorted ? "bg-[#fff2e9]" : ""} ${
                   columnIsFiltered ? "!bg-[#ecfcec]" : ""
                 } ${isSearchHighlighted ? "!bg-[#fff3d3]" : ""}`}
+                style={{
+                  width: cell.column.getSize() || 200,
+                  minWidth: cell.column.getSize() || 200,
+                  maxWidth: cell.column.getSize() || 200,
+                }}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </td>
@@ -121,7 +137,7 @@ export function TableBody({
         <td colSpan={visibleColumns.length} className="px-3 py-2">
           <button
             onClick={handleAddRow}
-            className="flex items-center space-x-2 text-sm text-gray-500 hover:text-gray-700"
+            className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700"
           >
             <Image src="/icons/plus.svg" alt="Add row" width={16} height={16} />
             <span>Add a record</span>

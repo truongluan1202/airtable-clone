@@ -3,6 +3,7 @@ import Image from "next/image";
 import { useRouter } from "next/router";
 import { api } from "~/utils/api";
 import { UserDropdown } from "~/components/ui";
+import { ToolsDropdown } from "~/components/table/ToolsDropdown";
 
 interface TableViewLayoutProps {
   children: React.ReactNode;
@@ -12,6 +13,8 @@ interface TableViewLayoutProps {
   tables?: Array<{ id: string; name: string }>;
   onTableSelect?: (tableId: string) => void;
   onTableCreated?: () => void;
+  onAddTestRows?: (count: number) => void;
+  isAddingRows?: boolean;
 }
 
 export function TableViewLayout({
@@ -22,9 +25,12 @@ export function TableViewLayout({
   tables = [],
   onTableSelect,
   onTableCreated,
+  onAddTestRows,
+  isAddingRows = false,
 }: TableViewLayoutProps) {
   const [activeTab, setActiveTab] = useState("Data");
   const [showCreateTable, setShowCreateTable] = useState(false);
+  const [showToolsDropdown, setShowToolsDropdown] = useState(false);
   const [tableNameInput, setTableNameInput] = useState("");
   const [tableDescription, setTableDescription] = useState("");
   const router = useRouter();
@@ -54,12 +60,12 @@ export function TableViewLayout({
   return (
     <div className="flex h-screen bg-white">
       {/* Page-level Thin Sidebar */}
-      <div className="flex w-16 flex-shrink-0 flex-col border-r border-gray-200 bg-gray-100">
+      <div className="flex w-14 flex-shrink-0 flex-col border-r border-gray-200 bg-gray-100">
         <div className="p-2">
           {/* Stacked boxes icon */}
           <button
             onClick={() => router.push("/")}
-            className="mb-2 w-full rounded-md p-3 text-gray-600 hover:bg-gray-200 hover:text-gray-900"
+            className="mb-2 w-full rounded-md p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900"
           >
             <Image
               src="/icons/airtable-icon-black.png"
@@ -98,7 +104,7 @@ export function TableViewLayout({
       <div className="flex flex-1 flex-col">
         {/* Base Header */}
         <div className="border-b border-gray-200 bg-white">
-          <div className="flex h-16 items-center justify-between px-6">
+          <div className="flex h-15 items-center justify-between px-4">
             {/* Left side - Base name and dropdown */}
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
@@ -123,12 +129,12 @@ export function TableViewLayout({
             </div>
 
             {/* Center - Navigation tabs */}
-            <div className="flex items-center space-x-8">
+            <div className="flex items-center space-x-6">
               <button
                 onClick={() => setActiveTab("Data")}
-                className={`border-b-2 pb-4 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
                   activeTab === "Data"
-                    ? "border-purple-600 text-purple-600"
+                    ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
@@ -136,9 +142,9 @@ export function TableViewLayout({
               </button>
               <button
                 onClick={() => setActiveTab("Automations")}
-                className={`border-b-2 pb-4 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
                   activeTab === "Automations"
-                    ? "border-purple-600 text-purple-600"
+                    ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
@@ -146,9 +152,9 @@ export function TableViewLayout({
               </button>
               <button
                 onClick={() => setActiveTab("Interfaces")}
-                className={`border-b-2 pb-4 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
                   activeTab === "Interfaces"
-                    ? "border-purple-600 text-purple-600"
+                    ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
@@ -156,9 +162,9 @@ export function TableViewLayout({
               </button>
               <button
                 onClick={() => setActiveTab("Forms")}
-                className={`border-b-2 pb-4 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
                   activeTab === "Forms"
-                    ? "border-purple-600 text-purple-600"
+                    ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
@@ -167,34 +173,34 @@ export function TableViewLayout({
             </div>
 
             {/* Right side - Action buttons */}
-            <div className="flex items-center space-x-3">
-              <button className="rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900">
+            <div className="flex items-center space-x-2">
+              <button className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900">
                 <Image
                   src="/icons/refresh.svg"
                   alt="Refresh"
-                  width={20}
-                  height={20}
+                  width={16}
+                  height={16}
                 />
               </button>
-              <button className="flex items-center space-x-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              <button className="flex items-center space-x-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
                 <Image
                   src="/icons/star-filled.svg"
                   alt="Star"
-                  width={16}
-                  height={16}
+                  width={12}
+                  height={12}
                 />
                 <span>Upgrade</span>
               </button>
-              <button className="flex items-center space-x-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              <button className="flex items-center space-x-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
                 <Image
                   src="/icons/launch.svg"
                   alt="Launch"
-                  width={16}
-                  height={16}
+                  width={12}
+                  height={12}
                 />
                 <span>Launch</span>
               </button>
-              <button className="rounded-md bg-purple-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-purple-700">
+              <button className="rounded-md bg-purple-600 px-3 py-1 text-xs font-medium text-white hover:bg-purple-700">
                 Share
               </button>
             </div>
@@ -203,7 +209,7 @@ export function TableViewLayout({
 
         {/* Table Navigation Bar */}
         <div className="relative z-10 bg-white">
-          <div className="flex h-9 items-center justify-between bg-[#e3f9fd] px-6 pl-0">
+          <div className="flex h-8 items-center justify-between bg-[#fdf3ff] px-4 pl-0">
             {/* Left side - Table tabs */}
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-0">
@@ -214,7 +220,7 @@ export function TableViewLayout({
                       key={table.id}
                       onClick={() => onTableSelect?.(table.id)}
                       className={[
-                        "relative inline-flex h-9.5 w-20 items-center rounded-t-md px-3 pt-1 text-sm font-medium transition-colors",
+                        "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs font-medium transition-colors",
                         active
                           ? [
                               "border border-gray-300 bg-white p-0 text-gray-900",
@@ -229,7 +235,7 @@ export function TableViewLayout({
                     >
                       {table.name}
                       {!active && (
-                        <span className="absolute top-3 right-[-1] bottom-3 w-px bg-gray-300"></span>
+                        <span className="absolute top-2 right-[-1] bottom-2 w-px bg-gray-300"></span>
                       )}
                     </button>
                   );
@@ -245,7 +251,7 @@ export function TableViewLayout({
                 />
                 <button
                   onClick={() => setShowCreateTable(true)}
-                  className="ml-2 rounded px-3 py-1 text-sm font-medium text-gray-600 hover:bg-blue-100 hover:text-gray-900"
+                  className="ml-2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-blue-100 hover:text-gray-900"
                 >
                   + Add or import
                 </button>
@@ -253,10 +259,21 @@ export function TableViewLayout({
             </div>
 
             {/* Right side - Tools */}
-            <div className="flex items-center">
-              <button className="rounded px-3 py-1 text-sm font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700">
+            <div className="relative flex items-center">
+              <button
+                onClick={() => setShowToolsDropdown(!showToolsDropdown)}
+                className="rounded px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+              >
                 Tools
               </button>
+
+              {/* Tools Dropdown */}
+              <ToolsDropdown
+                isOpen={showToolsDropdown}
+                onClose={() => setShowToolsDropdown(false)}
+                onAddTestRows={onAddTestRows ?? (() => undefined)}
+                isAddingRows={isAddingRows}
+              />
             </div>
           </div>
         </div>

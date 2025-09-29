@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import type { EditableCellProps } from "./types";
 
@@ -15,6 +16,39 @@ export function EditableCell({
 }: EditableCellProps) {
   const [editValue, setEditValue] = useState(value);
   const [isDoubleClick, setIsDoubleClick] = useState(false);
+  const [showFullContent, setShowFullContent] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+  const [isEditingInModal, setIsEditingInModal] = useState(false);
+  const [modalEditValue, setModalEditValue] = useState(value);
+  const [isHovered, setIsHovered] = useState(false);
+  const cellRef = useRef<HTMLDivElement>(null);
+
+  // Ensure component is mounted before rendering portal
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Sync modal edit value when modal opens
+  useEffect(() => {
+    if (showFullContent) {
+      setModalEditValue(value);
+      setIsEditingInModal(false);
+    }
+  }, [showFullContent, value]);
+
+  // Close modal on escape key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && showFullContent) {
+        setShowFullContent(false);
+      }
+    };
+
+    if (showFullContent) {
+      document.addEventListener("keydown", handleEscape);
+      return () => document.removeEventListener("keydown", handleEscape);
+    }
+  }, [showFullContent]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -43,7 +77,7 @@ export function EditableCell({
           onChange={(e) => setEditValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
-          className={`w-full border border-blue-500 p-1 text-sm focus:outline-none ${
+          className={`w-full border border-blue-500 p-1 text-xs focus:outline-none ${
             hasDropdown ? "pr-6" : ""
           }`}
           placeholder={placeholder}
@@ -73,8 +107,16 @@ export function EditableCell({
     setTimeout(() => {
       if (!isDoubleClick && !isEditing) {
         onSelect();
+        // Show full content if there's any content
+        if (value && value.length > 0) {
+          console.log("🔍 Opening modal for content:", {
+            value,
+            length: value.length,
+          });
+          setShowFullContent(true);
+        }
       }
-    }, 100);
+    }, 150); // Slightly longer delay to be more reliable
   };
 
   const handleDoubleClick = (e: React.MouseEvent) => {
@@ -85,16 +127,210 @@ export function EditableCell({
     }
   };
 
+  const handleRightClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (value && value.length > 0) {
+      console.log("🔍 Right-click: Opening modal for content:", value);
+      setShowFullContent(true);
+    }
+  };
+
+  const handleIconClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent the cell click from firing
+    console.log("🎯 Icon clicked!", { value, length: value?.length });
+    if (value && value.length > 0) {
+      console.log("🔍 Icon click: Opening modal for content:", value);
+      setShowFullContent(true);
+    }
+  };
+
+  const handleModalEdit = () => {
+    setIsEditingInModal(true);
+  };
+
+  const handleModalSave = () => {
+    console.log("💾 Modal save triggered");
+    onUpdate(modalEditValue);
+    setIsEditingInModal(false);
+    setShowFullContent(false);
+  };
+
+  const handleModalCancel = () => {
+    setModalEditValue(value); // Reset to original value
+    setIsEditingInModal(false);
+  };
+
+  const handleModalKeyDown = (e: React.KeyboardEvent) => {
+    console.log("⌨️ Modal keydown:", e.key);
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      console.log("🚪 Modal closed by Escape key");
+      handleModalCancel();
+    } else if (e.key === "Enter") {
+      // Only stop propagation to prevent parent handlers, but allow textarea default behavior
+      e.stopPropagation();
+      console.log("↩️ Enter key handled - creating new line");
+      // Don't prevent default - let textarea handle Enter naturally
+    }
+  };
+
   return (
-    <div
-      className={`cursor-pointer rounded p-1 text-sm text-gray-900 hover:bg-gray-50 ${
-        isSelected ? "bg-blue-50" : ""
-      }`}
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      style={{ userSelect: "none" }}
-    >
-      {value || "-"}
-    </div>
+    <>
+      <div
+        ref={cellRef}
+        className={`cursor-pointer rounded p-1 text-xs text-gray-900 hover:bg-gray-50 ${
+          isSelected ? "bg-blue-50" : ""
+        }`}
+        onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
+        onContextMenu={handleRightClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          userSelect: "none",
+          maxWidth: "100%",
+        }}
+        title={value || ""} // Show full content on hover
+      >
+        <div className="relative flex items-center gap-1">
+          <span
+            className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+            style={{
+              maxWidth:
+                value && value.length > 0 && isHovered
+                  ? "calc(100% - 24px)"
+                  : "100%",
+            }}
+          >
+            {value || "-"}
+          </span>
+          {value && value.length > 0 && isHovered && (
+            <span
+              className="absolute -right-3 flex-shrink-0 cursor-pointer rounded px-1 text-xs text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+              onClick={handleIconClick}
+              title="Click to view full content"
+            >
+              <Image
+                src="/icons/expand-icon.svg"
+                alt="expand"
+                width={12}
+                height={12}
+              />
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Full Content Modal */}
+      {isMounted &&
+        showFullContent &&
+        createPortal(
+          <div
+            className="cell-modal-overlay bg-opacity-10 flex items-center justify-center bg-black"
+            onClick={() => {
+              console.log("🚪 Modal closed by backdrop click");
+              setShowFullContent(false);
+            }}
+            onKeyDown={(e) => {
+              // Prevent any keyboard events from bubbling up
+              e.stopPropagation();
+            }}
+          >
+            <div
+              className="mx-4 max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-gray-200 bg-white p-6 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                // Prevent keyboard events from bubbling up to parent elements
+                e.stopPropagation();
+              }}
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-medium text-gray-900">
+                  Cell Content
+                </h3>
+                <button
+                  onClick={() => setShowFullContent(false)}
+                  className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                >
+                  <svg
+                    className="h-6 w-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <div className="mb-4">
+                {isEditingInModal ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-gray-500">
+                      Press Enter for new lines. Click Save to save changes.
+                    </div>
+                    <div className="rounded-md border border-blue-300 bg-white p-4">
+                      <textarea
+                        value={modalEditValue}
+                        onChange={(e) => setModalEditValue(e.target.value)}
+                        onKeyDown={handleModalKeyDown}
+                        className="w-full resize-y border-none p-0 text-xs text-gray-900 focus:outline-none"
+                        rows={Math.max(4, modalEditValue.split("\n").length)}
+                        placeholder={placeholder}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
+                    <pre className="text-xs whitespace-pre-wrap text-gray-900">
+                      {value || "-"}
+                    </pre>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end space-x-3">
+                {isEditingInModal ? (
+                  <>
+                    <button
+                      onClick={handleModalCancel}
+                      className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:outline-none"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleModalSave}
+                      className="rounded-md bg-green-600 px-4 py-2 text-white hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:outline-none"
+                    >
+                      Save
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setShowFullContent(false)}
+                      className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:outline-none"
+                    >
+                      Close
+                    </button>
+                    <button
+                      onClick={handleModalEdit}
+                      className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      Edit
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
