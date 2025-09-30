@@ -260,7 +260,7 @@ export default function Home() {
                         onContextMenu={(e) => handleContextMenu(e, base)}
                       >
                         <div className="flex items-center space-x-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 font-medium text-white">
+                          <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 text-white">
                             {base.name.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1">
@@ -286,9 +286,7 @@ export default function Home() {
                         className="text-gray-400"
                       />
                     </div>
-                    <h3 className="mb-2 text-lg font-medium text-gray-900">
-                      No bases yet
-                    </h3>
+                    <h3 className="mb-2 text-lg text-gray-900">No bases yet</h3>
                     <p className="mb-6 text-sm text-gray-500">
                       Create your first base to get started with organizing your
                       data.
@@ -357,7 +355,7 @@ export default function Home() {
 
               {/* Workspace Collaborators */}
               <div>
-                <h3 className="mb-3 text-sm font-medium text-gray-900">
+                <h3 className="mb-3 text-sm text-gray-900">
                   Workspace collaborators
                 </h3>
                 <div className="flex items-center space-x-3">
@@ -373,12 +371,10 @@ export default function Home() {
         {showCreateBase && (
           <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
             <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-              <h3 className="mb-4 text-lg font-medium text-gray-900">
-                Create New Base
-              </h3>
+              <h3 className="mb-4 text-lg text-gray-900">Create New Base</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm text-gray-700">
                     Base Name
                   </label>
                   <input
@@ -390,7 +386,7 @@ export default function Home() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm text-gray-700">
                     Description (Optional)
                   </label>
                   <textarea

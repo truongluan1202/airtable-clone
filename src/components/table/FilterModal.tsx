@@ -183,9 +183,7 @@ export function FilterDropdown({
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-medium text-gray-900">
-          In this view, show records
-        </h3>
+        <h3 className="text-sm text-gray-900">In this view, show records</h3>
         <div className="flex items-center space-x-2"></div>
       </div>
 
@@ -212,9 +210,7 @@ export function FilterDropdown({
                   >
                     {/* Logic operator */}
                     {conditionIndex === 0 ? (
-                      <span className="w-13 text-xs font-medium text-gray-700">
-                        Where
-                      </span>
+                      <span className="w-13 text-xs text-gray-700">Where</span>
                     ) : (
                       <div className="w-13">
                         <select

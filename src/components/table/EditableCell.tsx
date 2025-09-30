@@ -58,6 +58,17 @@ export function EditableCell({
       } else if (e.key === "Escape") {
         setEditValue(value);
         onStopEdit();
+      } else if (
+        e.key === "Tab" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowDown" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
+        e.key === "Shift + Tab"
+      ) {
+        // prevent default behavior
+        e.preventDefault();
+        e.stopPropagation();
       }
     },
     [editValue, onUpdate, onStopEdit, value],
@@ -77,7 +88,7 @@ export function EditableCell({
           onChange={(e) => setEditValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
-          className={`w-full border border-blue-500 p-1 text-xs focus:outline-none ${
+          className={`w-full text-xs focus:outline-none ${
             hasDropdown ? "pr-6" : ""
           }`}
           placeholder={placeholder}
@@ -179,9 +190,7 @@ export function EditableCell({
     <>
       <div
         ref={cellRef}
-        className={`cursor-pointer rounded p-1 text-xs text-gray-900 hover:bg-gray-50 ${
-          isSelected ? "bg-blue-50" : ""
-        }`}
+        className={`cursor-pointer rounded p-1 text-xs text-gray-900 hover:bg-gray-50`}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleRightClick}
@@ -246,9 +255,7 @@ export function EditableCell({
               }}
             >
               <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-lg font-medium text-gray-900">
-                  Cell Content
-                </h3>
+                <h3 className="text-lg text-gray-900">Cell Content</h3>
                 <button
                   onClick={() => setShowFullContent(false)}
                   className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -274,7 +281,7 @@ export function EditableCell({
                     <div className="text-xs text-gray-500">
                       Press Enter for new lines. Click Save to save changes.
                     </div>
-                    <div className="rounded-md border border-blue-300 bg-white p-4">
+                    <div className="rounded-md border border-blue-500 bg-white p-4">
                       <textarea
                         value={modalEditValue}
                         onChange={(e) => setModalEditValue(e.target.value)}

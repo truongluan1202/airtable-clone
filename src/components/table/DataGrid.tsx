@@ -28,12 +28,15 @@ export function DataGrid({
   hasNextPage,
   fetchNextPage,
   isFetchingNextPage,
+  // Total rows for complete table structure
+  totalRows,
 }: DataGridProps & {
   filters?: FilterGroup[];
   enableVirtualization?: boolean;
   hasNextPage?: boolean;
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
+  totalRows?: number;
 }) {
   console.log("🔥 DataGrid rendered with tableId:", tableId);
   console.log("🔍 Search query in DataGrid:", searchQuery);
@@ -73,6 +76,10 @@ export function DataGrid({
     handleDeleteRow,
     handleDeleteColumn,
     handleCellUpdate,
+    isAddingColumn,
+    isAddingRow,
+    isDeletingRow,
+    isDeletingColumn,
   } = useDataGridMutations(tableId);
 
   // Custom hook for search and sort logic
@@ -139,6 +146,8 @@ export function DataGrid({
     isColumnSorted,
     getColumnSortDirection,
     isRowHovered: (rowId: string) => hoveredRowId === rowId,
+    isAddingColumn,
+    isDeletingColumn,
   });
 
   // Keyboard navigation hook
@@ -163,9 +172,9 @@ export function DataGrid({
 
   if (enableVirtualization) {
     return (
-      <div className="h-full">
+      <div className="flex h-full flex-col">
         {/* Header - always visible */}
-        <div className="border-b border-gray-200">
+        <div className="flex-shrink-0 border-b border-gray-200">
           <table style={{ tableLayout: "fixed", width: "auto" }}>
             <TableHeader
               headerGroups={table.getHeaderGroups()}
@@ -175,8 +184,12 @@ export function DataGrid({
           </table>
         </div>
 
-        {/* Virtualized Body */}
-        <div onKeyDown={handleKeyDown} tabIndex={0}>
+        {/* Virtualized Body - takes remaining space */}
+        <div
+          className="flex-1 overflow-hidden"
+          onKeyDown={handleKeyDown}
+          tabIndex={0}
+        >
           <VirtualizedTableBody
             rows={table.getRowModel().rows}
             columns={columns}
@@ -195,7 +208,30 @@ export function DataGrid({
             isFetchingNextPage={isFetchingNextPage}
             // Row hover state
             onRowHover={setHoveredRowId}
+            // Loading states
+            isAddingRow={isAddingRow}
+            // Total rows for complete table structure
+            totalRows={totalRows}
           />
+        </div>
+
+        {/* Row Counter Footer */}
+        <div className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-2">
+          <div className="flex items-center justify-between text-xs text-gray-600">
+            <span>
+              {filteredData.length === data.length
+                ? `${data.length} row${data.length !== 1 ? "s" : ""}`
+                : `${filteredData.length} of ${data.length} row${data.length !== 1 ? "s" : ""} shown`}
+              {hasNextPage && (
+                <span className="text-gray-400"> (+ more available)</span>
+              )}
+            </span>
+            {hasNextPage && (
+              <span className="text-gray-500">
+                {isFetchingNextPage ? "Loading more..." : "More data available"}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Context Menu */}
@@ -206,6 +242,7 @@ export function DataGrid({
             rowId={contextMenu.rowId}
             onDeleteRow={handleDeleteRow}
             onClose={() => setContextMenu(null)}
+            isDeletingRow={isDeletingRow}
           />
         )}
       </div>
@@ -239,8 +276,28 @@ export function DataGrid({
           handleAddRow={() => handleAddRow()}
           visibleColumns={visibleColumns}
           onRowHover={setHoveredRowId}
+          isAddingRow={isAddingRow}
         />
       </table>
+
+      {/* Row Counter Footer */}
+      <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
+        <div className="flex items-center justify-between text-xs text-gray-600">
+          <span>
+            {filteredData.length === data.length
+              ? `${data.length} row${data.length !== 1 ? "s" : ""}`
+              : `${filteredData.length} of ${data.length} row${data.length !== 1 ? "s" : ""} shown`}
+            {hasNextPage && (
+              <span className="text-gray-400"> (+ more available)</span>
+            )}
+          </span>
+          {hasNextPage && (
+            <span className="text-gray-500">
+              {isFetchingNextPage ? "Loading more..." : "More data available"}
+            </span>
+          )}
+        </div>
+      </div>
 
       {/* Context Menu */}
       {contextMenu && (
@@ -250,6 +307,7 @@ export function DataGrid({
           rowId={contextMenu.rowId}
           onDeleteRow={handleDeleteRow}
           onClose={() => setContextMenu(null)}
+          isDeletingRow={isDeletingRow}
         />
       )}
     </div>

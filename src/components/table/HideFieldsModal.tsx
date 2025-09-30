@@ -59,17 +59,31 @@ export function HideFieldsDropdown({
 
   const getColumnIcon = (column: Column) => {
     if (column.type === "TEXT") {
-      if (column.name.toLowerCase().includes("name")) {
-        return "/icons/user.svg";
-      } else if (column.name.toLowerCase().includes("email")) {
-        return "/icons/document.svg";
-      } else {
-        return "/icons/document.svg";
-      }
-    } else if (column.type === "NUMBER") {
-      return "/icons/checkbox.svg";
+      return (
+        <svg
+          width="16"
+          height="16"
+          fill="currentColor"
+          shape-rendering="geometricprecision"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M8.442 3.266a.5.5 0 0 0-.884 0l-4.5 8.5a.5.5 0 1 0 .884.468L5.125 10h5.75l1.183 2.234a.5.5 0 1 0 .884-.468zM10.346 9 8 4.569 5.654 9z"
+          />
+        </svg>
+      );
     }
-    return "/icons/document.svg";
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="1em"
+        height="1em"
+        fill="currentColor"
+        viewBox="0 0 256 256"
+      >
+        <path d="M216 152h-48v-48h48a8 8 0 0 0 0-16h-48V40a8 8 0 0 0-16 0v48h-48V40a8 8 0 0 0-16 0v48H40a8 8 0 0 0 0 16h48v48H40a8 8 0 0 0 0 16h48v48a8 8 0 0 0 16 0v-48h48v48a8 8 0 0 0 16 0v-48h48a8 8 0 0 0 0-16m-112 0v-48h48v48Z" />
+      </svg>
+    );
   };
 
   return (
@@ -78,14 +92,14 @@ export function HideFieldsDropdown({
       className="absolute top-full right-0 z-50 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-xl"
     >
       {/* Search bar */}
-      <div className="border-b border-gray-200 p-4">
+      <div className="mx-5 border-b border-gray-200 py-4">
         <div className="relative">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Find a field"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
           />
           <div className="absolute inset-y-0 right-0 flex items-center pr-3">
             <button className="text-gray-400 hover:text-gray-600">
@@ -108,39 +122,31 @@ export function HideFieldsDropdown({
       </div>
 
       {/* Column list */}
-      <div className="max-h-80 overflow-y-auto">
+      <div className="mx-2 max-h-80 overflow-y-auto py-3">
         {filteredColumns.map((column) => {
           const isVisible = visibleColumns[column.id] !== false;
 
           return (
             <div
               key={column.id}
-              className="flex items-center space-x-3 border-b border-gray-100 p-3 hover:bg-gray-50"
+              className="flex max-h-7 items-center space-x-3 p-3 hover:bg-gray-50"
             >
               {/* Toggle switch */}
               <button
                 onClick={() => onColumnVisibilityChange(column.id, !isVisible)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                  isVisible ? "bg-green-500" : "bg-gray-300"
+                className={`relative inline-flex h-2 w-4 items-center rounded-full transition-colors ${
+                  isVisible ? "bg-[#058a16]" : "bg-gray-300"
                 }`}
               >
                 <span
-                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                    isVisible ? "translate-x-5" : "translate-x-1"
+                  className={`inline-block h-1 w-1 transform rounded-full bg-white transition-transform ${
+                    isVisible ? "translate-x-2.5" : "translate-x-0.5"
                   }`}
                 />
               </button>
 
               {/* Column icon */}
-              <div className="flex-shrink-0">
-                <Image
-                  src={getColumnIcon(column)}
-                  alt={column.name}
-                  width={16}
-                  height={16}
-                  className="text-gray-600"
-                />
-              </div>
+              <div className="flex-shrink-0">{getColumnIcon(column)}</div>
 
               {/* Column name */}
               <span className="flex-1 text-sm text-gray-900">
@@ -150,11 +156,14 @@ export function HideFieldsDropdown({
               {/* Drag handle */}
               <div className="flex-shrink-0 cursor-move">
                 <svg
-                  className="h-4 w-4 text-gray-400"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="1em"
+                  height="1em"
                   fill="currentColor"
-                  viewBox="0 0 20 20"
+                  className="cursor-grab not-hover:opacity-50"
+                  viewBox="0 0 256 256"
                 >
-                  <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                  <path d="M104 60a12 12 0 1 1-12-12 12 12 0 0 1 12 12m60 12a12 12 0 1 0-12-12 12 12 0 0 0 12 12m-72 44a12 12 0 1 0 12 12 12 12 0 0 0-12-12m72 0a12 12 0 1 0 12 12 12 12 0 0 0-12-12m-72 68a12 12 0 1 0 12 12 12 12 0 0 0-12-12m72 0a12 12 0 1 0 12 12 12 12 0 0 0-12-12" />
                 </svg>
               </div>
             </div>
@@ -163,17 +172,17 @@ export function HideFieldsDropdown({
       </div>
 
       {/* Action buttons */}
-      <div className="border-t border-gray-200 p-4">
+      <div className="px-3 pb-2">
         <div className="flex space-x-3">
           <button
             onClick={handleHideAll}
-            className="flex-1 rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            className="flex-1 rounded-md bg-gray-100 px-3 py-2 text-xs text-gray-700 hover:bg-gray-200"
           >
             Hide all
           </button>
           <button
             onClick={handleShowAll}
-            className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
           >
             Show all
           </button>

@@ -47,7 +47,7 @@ const SignIn: NextPage = () => {
             <div className="mb-6">
               <label
                 htmlFor="email"
-                className="mb-2 block text-sm font-medium text-gray-700"
+                className="mb-2 block text-sm text-gray-700"
               >
                 Email
               </label>
@@ -124,7 +124,7 @@ const SignIn: NextPage = () => {
                 New to Airtable?{" "}
                 <a
                   href="#"
-                  className="border-b border-blue-600 font-medium text-blue-600 hover:text-blue-700"
+                  className="border-b border-blue-600 text-blue-600 hover:text-blue-700"
                 >
                   Create an account
                 </a>{" "}

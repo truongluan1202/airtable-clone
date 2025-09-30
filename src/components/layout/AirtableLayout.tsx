@@ -120,7 +120,7 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
             <div className="flex items-center space-x-3 rounded-md bg-gray-100 p-2">
               <Image src="/icons/home.svg" alt="Home" width={20} height={20} />
               {!sidebarCollapsed && (
-                <span className="text-sm font-medium text-gray-900">Home</span>
+                <span className="text-sm text-gray-900">Home</span>
               )}
             </div>
 
@@ -135,28 +135,9 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
               {!sidebarCollapsed && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-700">Starred</span>
-                  <Image
-                    src="/icons/chevron-down.svg"
-                    alt=""
-                    width={12}
-                    height={12}
-                  />
                 </div>
               )}
             </div>
-
-            {/* Starred placeholder */}
-            {!sidebarCollapsed && (
-              <div className="ml-2 rounded-md bg-gray-50 p-3">
-                <div className="flex items-center space-x-2">
-                  <Image src="/icons/star.svg" alt="" width={16} height={16} />
-                  <span className="text-xs text-gray-500">
-                    Your starred bases, interfaces, and workspaces will appear
-                    here.
-                  </span>
-                </div>
-              </div>
-            )}
 
             {/* Shared */}
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
@@ -242,44 +223,42 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
           <div className="mx-4 space-y-1 border-t border-gray-200 py-4 pt-4">
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
               <Image
-                src="/icons/document.svg"
+                src="/icons/template.png"
                 alt="Templates"
-                width={20}
-                height={20}
+                width={16}
+                height={16}
               />
               {!sidebarCollapsed && (
-                <span className="text-sm text-gray-700">
+                <span className="text-xs text-gray-700">
                   Templates and apps
                 </span>
               )}
             </div>
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
               <Image
-                src="/icons/checkbox.svg"
+                src="/icons/marketplace.png"
                 alt="Marketplace"
-                width={20}
-                height={20}
+                width={16}
+                height={16}
               />
               {!sidebarCollapsed && (
-                <span className="text-sm text-gray-700">Marketplace</span>
+                <span className="text-xs text-gray-700">Marketplace</span>
               )}
             </div>
             <div className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
               <Image
-                src="/icons/plus.svg"
+                src="/icons/import.png"
                 alt="Import"
-                width={20}
-                height={20}
+                width={16}
+                height={16}
               />
               {!sidebarCollapsed && (
-                <span className="text-sm text-gray-700">Import</span>
+                <span className="text-xs text-gray-700">Import</span>
               )}
             </div>
 
             <button className="mt-2 w-full rounded-md bg-[#166ee1] px-4 py-2 text-white hover:bg-blue-700">
-              {!sidebarCollapsed && (
-                <span className="text-sm font-medium">+ Create</span>
-              )}
+              {!sidebarCollapsed && <span className="text-sm">+ Create</span>}
             </button>
           </div>
         </div>
@@ -296,12 +275,10 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
       {showCreateWorkspace && (
         <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-medium text-gray-900">
-              Create New Workspace
-            </h3>
+            <h3 className="mb-4 text-lg text-gray-900">Create New Workspace</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm text-gray-700">
                   Workspace Name
                 </label>
                 <input

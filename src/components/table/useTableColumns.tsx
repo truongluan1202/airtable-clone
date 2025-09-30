@@ -60,6 +60,9 @@ interface UseTableColumnsProps {
   isColumnSorted: (columnId: string) => boolean;
   getColumnSortDirection: (columnId: string) => "asc" | "desc" | undefined;
   isRowHovered?: (rowId: string) => boolean;
+  // Loading states
+  isAddingColumn?: boolean;
+  isDeletingColumn?: boolean;
 }
 
 export function useTableColumns({
@@ -82,8 +85,15 @@ export function useTableColumns({
   isColumnSorted,
   getColumnSortDirection,
   isRowHovered,
+  isAddingColumn = false,
+  isDeletingColumn = false,
 }: UseTableColumnsProps): ColumnDef<DataRow, any>[] {
   const columnHelper = createColumnHelper<DataRow>();
+
+  console.log("🔥 useTableColumns loading states:", {
+    isAddingColumn,
+    isDeletingColumn,
+  });
 
   const tableColumns = useMemo(() => {
     const cols: ColumnDef<DataRow, any>[] = [
@@ -121,19 +131,33 @@ export function useTableColumns({
                 <div className="flex items-center space-x-1">
                   {/* Column type icon */}
                   {column.type === "TEXT" && (
-                    <div className="flex h-4 w-4 items-center justify-center">
-                      <span className="text-xs text-gray-600">A</span>
-                    </div>
+                    <svg
+                      width="16"
+                      height="16"
+                      fill="currentColor"
+                      shape-rendering="geometricprecision"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M8.442 3.266a.5.5 0 0 0-.884 0l-4.5 8.5a.5.5 0 1 0 .884.468L5.125 10h5.75l1.183 2.234a.5.5 0 1 0 .884-.468zM10.346 9 8 4.569 5.654 9z"
+                      />
+                    </svg>
                   )}
                   {column.type === "NUMBER" && (
-                    <div className="flex h-4 w-4 items-center justify-center">
-                      <span className="text-xs text-gray-600">#</span>
-                    </div>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="1em"
+                      height="1em"
+                      fill="currentColor"
+                      viewBox="0 0 256 256"
+                    >
+                      <path d="M216 152h-48v-48h48a8 8 0 0 0 0-16h-48V40a8 8 0 0 0-16 0v48h-48V40a8 8 0 0 0-16 0v48H40a8 8 0 0 0 0 16h48v48H40a8 8 0 0 0 0 16h48v48a8 8 0 0 0 16 0v-48h48v48a8 8 0 0 0 16 0v-48h48a8 8 0 0 0 0-16m-112 0v-48h48v48Z" />
+                    </svg>
                   )}
 
                   {/* Column name */}
                   <span
-                    className={`text-xs font-medium text-gray-900 ${isSorted ? "font-semibold" : ""}`}
+                    className={`text-xs font-normal text-gray-900 ${isSorted ? "font-semibold" : ""}`}
                   >
                     {column.name}
                   </span>
@@ -168,6 +192,7 @@ export function useTableColumns({
                     columnName={column.name}
                     onDeleteColumn={handleDeleteColumn}
                     onClose={() => setOpenColumnDropdown(null)}
+                    isDeletingColumn={isDeletingColumn}
                   />
                 )}
               </div>
@@ -210,19 +235,25 @@ export function useTableColumns({
           <div className="relative">
             <button
               onClick={() => setShowAddColumnDropdown(!showAddColumnDropdown)}
-              className="p-1 text-gray-400 hover:text-gray-900"
+              disabled={isAddingColumn}
+              className="p-1 text-gray-400 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Image
-                src="/icons/plus.svg"
-                alt="Add column"
-                width={16}
-                height={16}
-              />
+              {isAddingColumn ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>
+              ) : (
+                <Image
+                  src="/icons/plus.svg"
+                  alt="Add column"
+                  width={16}
+                  height={16}
+                />
+              )}
             </button>
             {showAddColumnDropdown && (
               <AddColumnDropdown
                 onAddColumn={handleAddColumn}
                 onClose={() => setShowAddColumnDropdown(false)}
+                isLoading={isAddingColumn}
               />
             )}
           </div>
@@ -254,6 +285,8 @@ export function useTableColumns({
     isColumnSorted,
     getColumnSortDirection,
     isRowHovered,
+    isAddingColumn,
+    isDeletingColumn,
   ]);
 
   return tableColumns;

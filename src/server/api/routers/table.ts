@@ -82,12 +82,44 @@ export const tableRouter = createTRPCRouter({
       return table;
     }),
 
+  // Get total row count for a table
+  getRowCount: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Use direct row count to match the pagination query
+      const totalRows = await ctx.prisma.row.count({
+        where: {
+          tableId: input.id,
+        },
+      });
+
+      // Verify table exists
+      const table = await ctx.prisma.table.findFirst({
+        where: {
+          id: input.id,
+          base: {
+            userId: ctx.session.user.id,
+          },
+        },
+      });
+
+      if (!table) {
+        throw new Error("Table not found");
+      }
+
+      // console.log("🔍 Row count query result:", { tableId: input.id, totalRows });
+
+      return {
+        totalRows,
+      };
+    }),
+
   // Get table data with cursor-based pagination for infinite scroll
   getByIdPaginated: protectedProcedure
     .input(
       z.object({
         id: z.string(),
-        limit: z.number().min(1).max(100).default(50),
+        limit: z.number().min(1).max(500).default(200),
         cursor: z.string().nullish(),
       }),
     )
@@ -113,13 +145,32 @@ export const tableRouter = createTRPCRouter({
         throw new Error("Table not found");
       }
 
-      // Get paginated rows
+      // Get total count for debugging
+      const totalCount = await ctx.prisma.row.count({
+        where: {
+          tableId: input.id,
+        },
+      });
+
+      // Get paginated rows using offset-based pagination for more reliable results
+      // Calculate offset from cursor (treat cursor as page number)
+      const offset = input.cursor ? parseInt(input.cursor) * input.limit : 0;
+
       const rows = await ctx.prisma.row.findMany({
         where: {
           tableId: input.id,
         },
-        include: {
-          cells: true,
+        select: {
+          id: true,
+          createdAt: true,
+          cells: {
+            select: {
+              id: true,
+              vText: true,
+              vNumber: true,
+              columnId: true,
+            },
+          },
         },
         orderBy: [
           {
@@ -130,29 +181,33 @@ export const tableRouter = createTRPCRouter({
           },
         ],
         take: input.limit + 1, // Take one extra to check if there are more
-        ...(input.cursor && {
-          cursor: {
-            id: input.cursor,
-          },
-          skip: 1, // Skip the cursor itself
-        }),
+        skip: offset,
       });
 
       // Check if there are more rows
-      const hasMore = rows.length > input.limit;
-      const nextCursor = hasMore ? rows[input.limit]?.id : null; // Use the extra row as next cursor
+      let hasMore = rows.length > input.limit;
+      let nextCursor = hasMore
+        ? String(Math.floor(offset / input.limit) + 1)
+        : null; // Use page number as cursor
 
       // Remove the extra row if it exists
       const actualRows = hasMore ? rows.slice(0, input.limit) : rows;
 
-      console.log("🔍 Pagination debug:", {
-        inputLimit: input.limit,
-        rowsReturned: rows.length,
-        hasMore,
-        nextCursor,
-        actualRowsCount: actualRows.length,
-        cursor: input.cursor,
-      });
+      // Additional check: if we have more data than what we've loaded
+      // This handles edge cases where offset pagination might miss some rows
+      const currentPage = input.cursor ? parseInt(input.cursor) : 0;
+      const totalLoadedRows = (currentPage + 1) * input.limit;
+      const hasMoreData = totalLoadedRows < totalCount;
+
+      // console.log("🔍 Offset pagination check:", { currentPage, totalLoadedRows, totalCount, hasMoreData });
+
+      if (!hasMore && hasMoreData) {
+        // console.log("🔍 Found more data available via offset check:", { totalLoadedRows, totalCount, remainingRows: totalCount - totalLoadedRows });
+        hasMore = true;
+        nextCursor = String(currentPage + 1);
+      }
+
+      // console.log("🔍 Pagination debug:", { inputLimit: input.limit, rowsReturned: rows.length, hasMore, nextCursor, actualRowsCount: actualRows.length, cursor: input.cursor, offset, currentPage, totalLoadedRows, totalCountInDB: totalCount, expectedRemaining: totalCount - totalLoadedRows, paginationType: "offset-based" });
 
       return {
         table,

@@ -157,7 +157,7 @@ export function SortDropdown({
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <h3 className="text-sm font-medium text-gray-900">Sort by</h3>
+            <h3 className="text-sm text-gray-900">Sort by</h3>
             <button className="rounded-full bg-gray-100 p-1">
               <Image
                 src="/icons/info.svg"

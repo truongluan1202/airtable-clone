@@ -20,6 +20,17 @@ export default function TableDetail() {
   const [sort, setSort] = useState<SortConfig[]>([]);
   const [filters, setFilters] = useState<FilterGroup[]>([]);
 
+  // Get total row count for complete table structure
+  const { data: rowCountData } = api.table.getRowCount.useQuery(
+    { id: id as string },
+    {
+      enabled: !!id,
+      staleTime: 10 * 60 * 1000, // 10 minutes - row count rarely changes
+      gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
+      refetchOnWindowFocus: false,
+    },
+  );
+
   // Use infinite query for paginated data
   const {
     data: infiniteData,
@@ -30,11 +41,15 @@ export default function TableDetail() {
   } = api.table.getByIdPaginated.useInfiniteQuery(
     {
       id: id as string,
-      limit: 50,
+      limit: 500, // Maximum page size for fastest loading
     },
     {
       enabled: !!id,
       getNextPageParam: (lastPage) => lastPage.nextCursor,
+      staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh longer
+      gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache longer
+      refetchOnWindowFocus: false, // Don't refetch on window focus
+      refetchOnMount: false, // Don't refetch on mount if data exists
     },
   );
 
@@ -42,16 +57,64 @@ export default function TableDetail() {
   const allRows = infiniteData?.pages.flatMap((page) => page.rows) ?? [];
   const table = infiniteData?.pages[0]?.table;
 
-  // Debug logging
-  console.log("📊 Infinite query state:", {
-    pagesCount: infiniteData?.pages.length ?? 0,
-    totalRows: allRows.length,
-    hasNextPage,
-    isFetchingNextPage,
-    lastPageCursor:
-      infiniteData?.pages[infiniteData.pages.length - 1]?.nextCursor,
-    tableLoading,
-  });
+  // Debug logging (commented out for performance)
+  // console.log("📊 Infinite query state:", { pagesCount: infiniteData?.pages.length ?? 0, totalRows: allRows.length, dbTotalRows: rowCountData?.totalRows, rowDifference: (rowCountData?.totalRows ?? 0) - allRows.length, hasNextPage, isFetchingNextPage, lastPageCursor: infiniteData?.pages[infiniteData.pages.length - 1]?.nextCursor, tableLoading });
+
+  // Manual test function for debugging
+  const testFetchNextPage = () => {
+    console.log("🧪 Manual test - calling fetchNextPage...");
+    console.log("Before:", {
+      hasNextPage,
+      isFetchingNextPage,
+      pagesCount: infiniteData?.pages.length,
+      totalRows: rowCountData?.totalRows,
+      loadedRows: allRows.length,
+    });
+    void fetchNextPage();
+  };
+
+  // Force load all remaining data
+  const forceLoadAll = () => {
+    console.log("🚀 Force loading all remaining data...");
+    console.log("Current state:", {
+      totalRows: rowCountData?.totalRows,
+      loadedRows: allRows.length,
+      hasNextPage,
+      isFetchingNextPage,
+      missingRows: (rowCountData?.totalRows ?? 0) - allRows.length,
+    });
+
+    // Keep fetching until all data is loaded
+    const fetchUntilComplete = () => {
+      const missingRows = (rowCountData?.totalRows ?? 0) - allRows.length;
+
+      if (missingRows > 0 && !isFetchingNextPage && fetchNextPage) {
+        console.log("🔄 Force fetch: Loading next page...", {
+          missingRows,
+          hasNextPage,
+          isFetchingNextPage,
+        });
+        void fetchNextPage();
+        setTimeout(fetchUntilComplete, 1000); // Check again in 1 second
+      } else if (
+        rowCountData?.totalRows &&
+        allRows.length >= rowCountData.totalRows
+      ) {
+        console.log("✅ Force load complete: All data loaded!", {
+          totalRows: rowCountData.totalRows,
+          loadedRows: allRows.length,
+        });
+      } else {
+        console.log("⏳ Force load: Waiting for current request...", {
+          missingRows,
+          isFetchingNextPage,
+        });
+        setTimeout(fetchUntilComplete, 500);
+      }
+    };
+
+    fetchUntilComplete();
+  };
 
   // Initialize column visibility when table data loads
   useEffect(() => {
@@ -143,11 +206,22 @@ export default function TableDetail() {
     // Create a dynamic object based on the actual table columns
     const rowData: any = { id: row.id };
 
-    // Map each column to its value from the cache
+    // Map each column to its value from the cells
     table?.columns?.forEach((column: any) => {
-      const value = row.cache?.[column.id];
-      // Only use cached values - don't generate fake data on refresh
-      rowData[column.name] = value ?? "";
+      // Find the cell for this column
+      const cell = row.cells?.find((cell: any) => cell.columnId === column.id);
+
+      // Get the value based on column type
+      let value = "";
+      if (cell) {
+        if (column.type === "TEXT") {
+          value = cell.vText ?? "";
+        } else if (column.type === "NUMBER") {
+          value = cell.vNumber?.toString() ?? "";
+        }
+      }
+
+      rowData[column.name] = value;
     });
 
     return rowData;
@@ -220,6 +294,8 @@ export default function TableDetail() {
           }
         }}
         isAddingRows={addTestRows.isPending}
+        onDebugFetch={testFetchNextPage}
+        onForceLoadAll={forceLoadAll}
       >
         <div className="flex h-full flex-col">
           <TableNavigation
@@ -258,6 +334,8 @@ export default function TableDetail() {
               hasNextPage={hasNextPage}
               fetchNextPage={fetchNextPage}
               isFetchingNextPage={isFetchingNextPage}
+              // Total rows for complete table structure
+              totalRows={rowCountData?.totalRows}
             />
           </TableNavigation>
         </div>
@@ -267,15 +345,13 @@ export default function TableDetail() {
       {showAddDataModal && (
         <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-medium text-gray-900">
-              Add Sample Data
-            </h3>
+            <h3 className="mb-4 text-lg text-gray-900">Add Sample Data</h3>
             <p className="mb-4 text-sm text-gray-600">
               How many sample rows would you like to add?
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm text-gray-700">
                   Number of rows
                 </label>
                 <input

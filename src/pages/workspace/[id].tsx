@@ -130,12 +130,14 @@ export default function WorkspacePage() {
 
   if (status === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+      <AirtableLayout>
+        <div className="flex h-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
+            <p className="mt-4 text-gray-600">Loading...</p>
+          </div>
         </div>
-      </div>
+      </AirtableLayout>
     );
   }
 
@@ -145,11 +147,24 @@ export default function WorkspacePage() {
 
   if (!workspace) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <div className="text-center">
-          <p className="text-gray-600">Workspace not found</p>
+      <AirtableLayout>
+        <div className="flex h-full items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900">
+              Workspace not found
+            </h1>
+            <p className="mt-2 text-gray-600">
+              The workspace you&apos;re looking for doesn&apos;t exist.
+            </p>
+            <button
+              onClick={() => router.push("/")}
+              className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            >
+              Back to Home
+            </button>
+          </div>
         </div>
-      </div>
+      </AirtableLayout>
     );
   }
 
@@ -229,7 +244,7 @@ export default function WorkspacePage() {
                     onContextMenu={(e) => handleContextMenu(e, base)}
                   >
                     <div className="flex items-center space-x-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 font-medium text-white">
+                      <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 text-white">
                         {base.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1">
@@ -253,9 +268,7 @@ export default function WorkspacePage() {
                     className="text-gray-400"
                   />
                 </div>
-                <h3 className="mb-2 text-lg font-medium text-gray-900">
-                  No bases yet
-                </h3>
+                <h3 className="mb-2 text-lg text-gray-900">No bases yet</h3>
                 <p className="mb-6 text-sm text-gray-500">
                   Create your first base to get started with organizing your
                   data.
@@ -326,7 +339,7 @@ export default function WorkspacePage() {
 
               {/* Workspace Collaborators */}
               <div>
-                <h3 className="mb-3 text-sm font-medium text-gray-900">
+                <h3 className="mb-3 text-sm text-gray-900">
                   Workspace collaborators
                 </h3>
                 <div className="flex items-center space-x-3">
@@ -342,12 +355,10 @@ export default function WorkspacePage() {
         {showCreateBase && (
           <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
             <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-              <h3 className="mb-4 text-lg font-medium text-gray-900">
-                Create New Base
-              </h3>
+              <h3 className="mb-4 text-lg text-gray-900">Create New Base</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm text-gray-700">
                     Base Name
                   </label>
                   <input
@@ -359,7 +370,7 @@ export default function WorkspacePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm text-gray-700">
                     Description (Optional)
                   </label>
                   <textarea

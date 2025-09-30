@@ -15,6 +15,8 @@ interface TableViewLayoutProps {
   onTableCreated?: () => void;
   onAddTestRows?: (count: number) => void;
   isAddingRows?: boolean;
+  onDebugFetch?: () => void;
+  onForceLoadAll?: () => void;
 }
 
 export function TableViewLayout({
@@ -27,6 +29,8 @@ export function TableViewLayout({
   onTableCreated,
   onAddTestRows,
   isAddingRows = false,
+  onDebugFetch,
+  onForceLoadAll,
 }: TableViewLayoutProps) {
   const [activeTab, setActiveTab] = useState("Data");
   const [showCreateTable, setShowCreateTable] = useState(false);
@@ -108,10 +112,13 @@ export function TableViewLayout({
             {/* Left side - Base name and dropdown */}
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded bg-purple-600">
-                  <span className="text-sm font-medium text-white">
-                    {baseName.charAt(0).toUpperCase()}
-                  </span>
+                <div className="flex h-8 w-8 items-center justify-center rounded bg-[#7f39e2]">
+                  <Image
+                    src="/icons/airtable-icon-white.png"
+                    alt="Base"
+                    width={24}
+                    height={24}
+                  />
                 </div>
                 <div className="flex items-center space-x-1">
                   <span className="text-lg font-semibold text-gray-900">
@@ -132,7 +139,7 @@ export function TableViewLayout({
             <div className="flex items-center space-x-6">
               <button
                 onClick={() => setActiveTab("Data")}
-                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm ${
                   activeTab === "Data"
                     ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
@@ -142,7 +149,7 @@ export function TableViewLayout({
               </button>
               <button
                 onClick={() => setActiveTab("Automations")}
-                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm ${
                   activeTab === "Automations"
                     ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
@@ -152,7 +159,7 @@ export function TableViewLayout({
               </button>
               <button
                 onClick={() => setActiveTab("Interfaces")}
-                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm ${
                   activeTab === "Interfaces"
                     ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
@@ -162,7 +169,7 @@ export function TableViewLayout({
               </button>
               <button
                 onClick={() => setActiveTab("Forms")}
-                className={`h-15 border-b-2 pt-3 pb-2 text-sm font-medium ${
+                className={`h-15 border-b-2 pt-3 pb-2 text-sm ${
                   activeTab === "Forms"
                     ? "border-purple-600"
                     : "border-transparent text-gray-500 hover:text-gray-700"
@@ -176,13 +183,13 @@ export function TableViewLayout({
             <div className="flex items-center space-x-2">
               <button className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900">
                 <Image
-                  src="/icons/refresh.svg"
+                  src="/icons/time-refresh.png"
                   alt="Refresh"
                   width={16}
                   height={16}
                 />
               </button>
-              <button className="flex items-center space-x-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
+              <button className="flex items-center space-x-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
                 <Image
                   src="/icons/star-filled.svg"
                   alt="Star"
@@ -191,7 +198,7 @@ export function TableViewLayout({
                 />
                 <span>Upgrade</span>
               </button>
-              <button className="flex items-center space-x-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50">
+              <button className="flex items-center space-x-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
                 <Image
                   src="/icons/launch.svg"
                   alt="Launch"
@@ -200,7 +207,7 @@ export function TableViewLayout({
                 />
                 <span>Launch</span>
               </button>
-              <button className="rounded-md bg-purple-600 px-3 py-1 text-xs font-medium text-white hover:bg-purple-700">
+              <button className="rounded-md bg-[#7f39e2] px-3 py-1 text-xs text-white hover:bg-purple-700">
                 Share
               </button>
             </div>
@@ -220,7 +227,7 @@ export function TableViewLayout({
                       key={table.id}
                       onClick={() => onTableSelect?.(table.id)}
                       className={[
-                        "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs font-medium transition-colors",
+                        "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs transition-colors",
                         active
                           ? [
                               "border border-gray-300 bg-white p-0 text-gray-900",
@@ -251,7 +258,7 @@ export function TableViewLayout({
                 />
                 <button
                   onClick={() => setShowCreateTable(true)}
-                  className="ml-2 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-blue-100 hover:text-gray-900"
+                  className="ml-2 rounded px-2 py-1 text-xs text-gray-600 hover:bg-blue-100 hover:text-gray-900"
                 >
                   + Add or import
                 </button>
@@ -262,7 +269,7 @@ export function TableViewLayout({
             <div className="relative flex items-center">
               <button
                 onClick={() => setShowToolsDropdown(!showToolsDropdown)}
-                className="rounded px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700"
               >
                 Tools
               </button>
@@ -273,6 +280,8 @@ export function TableViewLayout({
                 onClose={() => setShowToolsDropdown(false)}
                 onAddTestRows={onAddTestRows ?? (() => undefined)}
                 isAddingRows={isAddingRows}
+                onDebugFetch={onDebugFetch}
+                onForceLoadAll={onForceLoadAll}
               />
             </div>
           </div>
@@ -288,15 +297,13 @@ export function TableViewLayout({
       {showCreateTable && (
         <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-medium text-gray-900">
-              Create New Table
-            </h3>
+            <h3 className="mb-4 text-lg text-gray-900">Create New Table</h3>
             <p className="mb-4 text-sm text-gray-600">
               Create a new table in your base.
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm text-gray-700">
                   Table Name
                 </label>
                 <input
@@ -309,7 +316,7 @@ export function TableViewLayout({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm text-gray-700">
                   Description (Optional)
                 </label>
                 <textarea

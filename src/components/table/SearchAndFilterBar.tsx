@@ -88,7 +88,7 @@ export function SearchAndFilterBar({
         <div className="relative">
           <button
             onClick={() => setShowFilterMenu(!showFilterMenu)}
-            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-4 font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none"
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm leading-4 text-gray-700 shadow-sm hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none"
           >
             <svg
               className="mr-2 h-4 w-4"
@@ -105,7 +105,7 @@ export function SearchAndFilterBar({
             </svg>
             Filter
             {filters.length > 0 && (
-              <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+              <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-800">
                 {filters.length}
               </span>
             )}
@@ -115,13 +115,11 @@ export function SearchAndFilterBar({
           {showFilterMenu && (
             <div className="absolute right-0 z-20 mt-2 w-80 rounded-md border border-gray-200 bg-white shadow-lg">
               <div className="p-4">
-                <h3 className="mb-3 text-sm font-medium text-gray-900">
-                  Add Filter
-                </h3>
+                <h3 className="mb-3 text-sm text-gray-900">Add Filter</h3>
 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm text-gray-700">
                       Column
                     </label>
                     <select
@@ -141,7 +139,7 @@ export function SearchAndFilterBar({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm text-gray-700">
                       Condition
                     </label>
                     <select
@@ -171,7 +169,7 @@ export function SearchAndFilterBar({
                       newFilter.operator,
                     ) && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">
+                        <label className="block text-sm text-gray-700">
                           Value
                         </label>
                         <input
@@ -222,7 +220,7 @@ export function SearchAndFilterBar({
             {filters.map((filter, index) => (
               <div
                 key={index}
-                className="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800"
+                className="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800"
               >
                 <span>
                   {getColumnName(filter.columnId)}{" "}

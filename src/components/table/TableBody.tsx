@@ -25,6 +25,8 @@ interface TableBodyProps {
   visibleColumns: Column[];
   // Row hover state
   onRowHover?: (rowId: string | null) => void;
+  // Loading states
+  isAddingRow?: boolean;
 }
 
 export function TableBody({
@@ -40,6 +42,7 @@ export function TableBody({
   handleAddRow,
   visibleColumns,
   onRowHover,
+  isAddingRow = false,
 }: TableBodyProps) {
   return (
     <tbody>
@@ -137,10 +140,20 @@ export function TableBody({
         <td colSpan={visibleColumns.length} className="px-3 py-2">
           <button
             onClick={handleAddRow}
-            className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700"
+            disabled={isAddingRow}
+            className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Image src="/icons/plus.svg" alt="Add row" width={16} height={16} />
-            <span>Add a record</span>
+            {isAddingRow ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>
+            ) : (
+              <Image
+                src="/icons/plus.svg"
+                alt="Add row"
+                width={16}
+                height={16}
+              />
+            )}
+            <span>{isAddingRow ? "Adding..." : "Add a record"}</span>
           </button>
         </td>
       </tr>

@@ -41,7 +41,7 @@ export function UserDropdown({
         onClick={() => setIsOpen(!isOpen)}
         className="flex h-8 w-8 items-center justify-center rounded-full bg-[#37c9ff] transition-colors hover:bg-blue-400"
       >
-        <span className="text-sm font-medium text-black">
+        <span className="text-sm text-black">
           {session?.user?.name?.charAt(0) ?? "U"}
         </span>
       </button>
@@ -60,12 +60,12 @@ export function UserDropdown({
           <div className="border-b border-gray-100 px-4 py-3">
             <div className="flex items-center space-x-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600">
-                <span className="text-sm font-medium text-white">
+                <span className="text-sm text-white">
                   {session?.user?.name?.charAt(0) ?? "U"}
                 </span>
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-gray-900">
+                <p className="truncate text-sm text-gray-900">
                   {session?.user?.name ?? "User"}
                 </p>
                 <p className="truncate text-xs text-gray-500">

@@ -116,7 +116,7 @@ export default function BaseDetail() {
       {showCreateTable && (
         <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg font-medium text-gray-900">
+            <h3 className="mb-4 text-lg text-gray-900">
               Create Your First Table
             </h3>
             <p className="mb-4 text-sm text-gray-600">
@@ -125,7 +125,7 @@ export default function BaseDetail() {
             </p>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm text-gray-700">
                   Table Name
                 </label>
                 <input
@@ -138,7 +138,7 @@ export default function BaseDetail() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm text-gray-700">
                   Description (Optional)
                 </label>
                 <textarea

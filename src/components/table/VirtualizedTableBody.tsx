@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { flexRender } from "@tanstack/react-table";
 import type { Row } from "@tanstack/react-table";
@@ -30,6 +30,10 @@ interface VirtualizedTableBodyProps {
   isFetchingNextPage?: boolean;
   // Row hover state
   onRowHover?: (rowId: string | null) => void;
+  // Loading states
+  isAddingRow?: boolean;
+  // Total rows for complete table structure
+  totalRows?: number;
 }
 
 export function VirtualizedTableBody({
@@ -48,89 +52,71 @@ export function VirtualizedTableBody({
   fetchNextPage,
   isFetchingNextPage,
   onRowHover,
+  isAddingRow = false,
+  totalRows = 0,
 }: VirtualizedTableBodyProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // Create a complete table structure with all rows (real + skeleton)
+  const completeRowCount = Math.max(totalRows, rows.length) + 1; // +1 for "Add row" button
+
   const virtualizer = useVirtualizer({
-    count: rows.length + 1 + (isFetchingNextPage ? 1 : 0), // +1 for "Add row" button, +1 for loading indicator
+    count: completeRowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 40, // Estimated row height in pixels
-    overscan: 5, // Render 5 extra items above and below the visible area
+    estimateSize: () => 41, // Estimated row height in pixels (40px + 1px border)
+    overscan: 10, // Reduced overscan for better performance
+    measureElement: undefined, // Disable dynamic measurement for better performance
   });
 
-  console.log("🎯 Virtualizer state:", {
-    totalCount: rows.length + 1 + (isFetchingNextPage ? 1 : 0),
-    rowsLength: rows.length,
-    isFetchingNextPage,
-    hasNextPage,
-    virtualItems: virtualizer.getVirtualItems().length,
-  });
+  // console.log("🎯 Complete table structure:", { totalRows, loadedRows: rows.length, completeRowCount, virtualItems: virtualizer.getVirtualItems().length, hasNextPage, isFetchingNextPage });
 
-  // Infinite scroll logic using scroll event
+  // Automatic background fetching - continuously load all data
+
+  // Start automatic fetching when component mounts and has data to fetch
+  useEffect(() => {
+    // Always try to fetch more data if we have less than total rows
+    if (
+      totalRows > 0 &&
+      rows.length < totalRows &&
+      !isFetchingNextPage &&
+      fetchNextPage
+    ) {
+      // console.log("🚀 Auto-fetching more data...", { hasNextPage, isFetchingNextPage, fetchNextPage: !!fetchNextPage, totalRows, loadedRows: rows.length, remainingRows: totalRows - rows.length });
+
+      // Fetch immediately with a small delay to prevent overwhelming the server
+      const timeoutId = setTimeout(() => {
+        fetchNextPage();
+      }, 50); // 50ms delay for batching
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [totalRows, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Also keep scroll-based loading as backup
   useEffect(() => {
     const scrollElement = parentRef.current;
-    if (!scrollElement) return;
+    if (!scrollElement || !hasNextPage || isFetchingNextPage || !fetchNextPage)
+      return;
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
-      const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100; // 100px threshold
+      const scrollPercentage = scrollTop / (scrollHeight - clientHeight);
 
-      if (isNearBottom && hasNextPage && !isFetchingNextPage && fetchNextPage) {
-        console.log("🔄 Fetching next page (scroll trigger)...", {
-          scrollTop,
-          scrollHeight,
-          clientHeight,
-          hasNextPage,
-          isFetchingNextPage,
-        });
+      // Fetch more data when user scrolls 70% through the table (backup trigger)
+      if (scrollPercentage > 0.7) {
+        // console.log("📊 Scroll-based loading triggered at", Math.round(scrollPercentage * 100) + "%");
         fetchNextPage();
       }
     };
 
-    scrollElement.addEventListener("scroll", handleScroll);
+    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
     return () => scrollElement.removeEventListener("scroll", handleScroll);
-  }, [hasNextPage, fetchNextPage, isFetchingNextPage]);
-
-  // Also check on virtual items change - using a ref to avoid dependency issues
-  const checkVirtualItems = useCallback(() => {
-    const virtualItems = virtualizer.getVirtualItems();
-    const [lastItem] = [...virtualItems].reverse();
-
-    if (!lastItem) {
-      return;
-    }
-
-    // Check if we're near the end (within 10 items of the last item)
-    if (
-      lastItem.index >= rows.length - 10 &&
-      hasNextPage &&
-      !isFetchingNextPage &&
-      fetchNextPage
-    ) {
-      console.log("🔄 Fetching next page (virtual items trigger)...", {
-        lastItemIndex: lastItem.index,
-        rowsLength: rows.length,
-        hasNextPage,
-        isFetchingNextPage,
-      });
-      fetchNextPage();
-    }
-  }, [
-    virtualizer,
-    rows.length,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  ]);
-
-  useEffect(() => {
-    checkVirtualItems();
-  }, [checkVirtualItems]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
     <div
       ref={parentRef}
-      className="h-[600px] overflow-auto" // Fixed height for virtualization
+      className="h-full overflow-auto bg-[#f6f8fc] pb-50" // Full height for virtualization
       style={{
         contain: "strict",
       }}
@@ -143,8 +129,10 @@ export function VirtualizedTableBody({
         }}
       >
         {virtualizer.getVirtualItems().map((virtualRow) => {
-          const isAddRowButton = virtualRow.index === rows.length;
-          const isLoadingIndicator = virtualRow.index === rows.length + 1;
+          const isAddRowButton = virtualRow.index === completeRowCount - 1; // Last row is "Add row" button
+          const isRealRow = virtualRow.index < rows.length;
+          const isSkeletonRow =
+            virtualRow.index >= rows.length && !isAddRowButton;
 
           if (isAddRowButton) {
             return (
@@ -159,35 +147,43 @@ export function VirtualizedTableBody({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                <div className="flex items-center border-b border-gray-200 px-3 py-2">
+                <div className="flex w-full items-center border-r border-b border-gray-200 bg-white px-3 py-2">
                   <button
                     onClick={handleAddRow}
-                    className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700"
+                    disabled={isAddingRow}
+                    className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <svg
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 4v16m8-8H4"
-                      />
-                    </svg>
-                    <span>Add a record</span>
+                    {isAddingRow ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>
+                    ) : (
+                      <svg
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                    )}
+                    <span>{isAddingRow ? "Adding..." : "Add a record"}</span>
                   </button>
                 </div>
               </div>
             );
           }
 
-          if (isLoadingIndicator) {
+          if (isSkeletonRow) {
+            // Calculate the actual row number for this skeleton row
+            const actualRowNumber = virtualRow.index + 1;
+
             return (
               <div
-                key="loading"
+                key={`skeleton-${virtualRow.index}`}
                 style={{
                   position: "absolute",
                   top: 0,
@@ -195,96 +191,169 @@ export function VirtualizedTableBody({
                   width: "auto",
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
+                  backgroundColor: "#fafbfc", // Skeleton background
+                  borderBottom: "1px solid #e5e7eb",
                 }}
               >
-                <div className="flex items-center justify-center border-b border-gray-200 px-3 py-2">
-                  <div className="flex items-center space-x-2 text-xs text-gray-500">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>
-                    <span>Loading more rows...</span>
-                  </div>
+                <div
+                  className="flex hover:bg-gray-50"
+                  style={{ height: "40px" }}
+                >
+                  {/* Render skeleton cells to match real row structure */}
+                  {rows.length > 0 && rows[0]
+                    ? // Use the first real row's cell structure as template
+                      rows[0].getVisibleCells().map((cell, columnIndex) => {
+                        // Skip rendering cells for the "addColumn" column (same as real rows)
+                        if (cell.column.id === "addColumn") {
+                          return null;
+                        }
+
+                        const isFirstColumn = columnIndex === 0;
+
+                        return (
+                          <div
+                            key={`skeleton-${virtualRow.index}-${cell.column.id}`}
+                            className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} flex items-center border-b border-gray-200 px-3 py-2`}
+                            style={{
+                              width: cell.column.getSize() || 200,
+                              minWidth: cell.column.getSize() || 200,
+                              maxWidth: cell.column.getSize() || 200,
+                              height: "40px",
+                            }}
+                          >
+                            {cell.column.id === "select" ? (
+                              // Show row number for selection column
+                              <div className="flex items-center justify-center">
+                                <span className="text-xs text-gray-500">
+                                  {actualRowNumber}
+                                </span>
+                              </div>
+                            ) : (
+                              // Show skeleton placeholder for data columns
+                              <div className="h-4 w-24 animate-pulse rounded bg-gray-200 opacity-60"></div>
+                            )}
+                          </div>
+                        );
+                      })
+                    : // Fallback if no real rows yet - use columns directly
+                      columns.map((column, columnIndex) => {
+                        const isFirstColumn = columnIndex === 0;
+                        return (
+                          <div
+                            key={`skeleton-${virtualRow.index}-${column.id}`}
+                            className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} flex items-center border-b border-gray-200 px-3 py-2`}
+                            style={{
+                              width: 200,
+                              minWidth: 200,
+                              maxWidth: 200,
+                              height: "40px",
+                            }}
+                          >
+                            {columnIndex === 0 ? (
+                              // Show row number for first column
+                              <div className="flex items-center justify-center">
+                                <span className="text-xs text-gray-500">
+                                  {actualRowNumber}
+                                </span>
+                              </div>
+                            ) : (
+                              // Show skeleton placeholder
+                              <div className="h-4 w-24 animate-pulse rounded bg-gray-200 opacity-60"></div>
+                            )}
+                          </div>
+                        );
+                      })}
                 </div>
               </div>
             );
           }
 
-          const row = rows[virtualRow.index];
-          if (!row) return null;
+          // Render real row data
+          if (isRealRow) {
+            const row = rows[virtualRow.index];
+            if (!row) return null;
 
-          return (
-            <div
-              key={row.id}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "auto",
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-            >
+            return (
               <div
-                className="flex border-b border-gray-200 hover:bg-gray-50"
-                onContextMenu={(e) => handleContextMenu(e, row.original.id)}
-                onMouseEnter={() => onRowHover?.(row.original.id)}
-                onMouseLeave={() => onRowHover?.(null)}
+                key={row.id}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "auto",
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                  backgroundColor: "white",
+                  borderBottom: "1px solid #e5e7eb",
+                }}
               >
-                {row.getVisibleCells().map((cell, columnIndex) => {
-                  // Skip rendering cells for the "addColumn" column
-                  if (cell.column.id === "addColumn") {
-                    return null;
-                  }
+                <div
+                  className="flex hover:bg-gray-50"
+                  onContextMenu={(e) => handleContextMenu(e, row.original.id)}
+                  onMouseEnter={() => onRowHover?.(row.original.id)}
+                  onMouseLeave={() => onRowHover?.(null)}
+                >
+                  {row.getVisibleCells().map((cell, columnIndex) => {
+                    // Skip rendering cells for the "addColumn" column
+                    if (cell.column.id === "addColumn") {
+                      return null;
+                    }
 
-                  const isSelected =
-                    selectedCell?.rowId === row.original.id &&
-                    selectedCell?.columnId === cell.column.id;
-                  const columnIsSorted = isColumnSorted(cell.column.id);
-                  const columnIsFiltered = isColumnFiltered(cell.column.id);
-                  const isFirstColumn = columnIndex === 0;
+                    const isSelected =
+                      selectedCell?.rowId === row.original.id &&
+                      selectedCell?.columnId === cell.column.id;
+                    const columnIsSorted = isColumnSorted(cell.column.id);
+                    const columnIsFiltered = isColumnFiltered(cell.column.id);
+                    const isFirstColumn = columnIndex === 0;
 
-                  // Get the column name for data access (row data is keyed by column names, not IDs)
-                  const columnName = columns.find(
-                    (col) => col.id === cell.column.id,
-                  )?.name;
-                  const cellValue = getCellValue(
-                    row.original.id,
-                    cell.column.id,
-                    columnName ? (row.original[columnName] ?? "") : "",
-                  );
-
-                  // Skip search highlighting for non-data columns
-                  const isSearchHighlighted =
-                    cell.column.id !== "addColumn" &&
-                    cell.column.id !== "select" &&
-                    isCellHighlighted(
+                    // Get the column name for data access (row data is keyed by column names, not IDs)
+                    const columnName = columns.find(
+                      (col) => col.id === cell.column.id,
+                    )?.name;
+                    const cellValue = getCellValue(
                       row.original.id,
                       cell.column.id,
-                      cellValue,
+                      columnName ? (row.original[columnName] ?? "") : "",
                     );
 
-                  return (
-                    <div
-                      key={cell.id}
-                      className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} border-b border-gray-200 px-3 py-2 ${
-                        isSelected ? "ring-2 ring-blue-500 ring-inset" : ""
-                      } ${columnIsSorted ? "bg-[#fff2e9]" : ""} ${
-                        columnIsFiltered ? "!bg-[#ecfcec]" : ""
-                      } ${isSearchHighlighted ? "!bg-[#fff3d3]" : ""}`}
-                      style={{
-                        width: cell.column.getSize() || 200,
-                        minWidth: cell.column.getSize() || 200,
-                        maxWidth: cell.column.getSize() || 200,
-                      }}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </div>
-                  );
-                })}
+                    // Skip search highlighting for non-data columns
+                    const isSearchHighlighted =
+                      cell.column.id !== "addColumn" &&
+                      cell.column.id !== "select" &&
+                      isCellHighlighted(
+                        row.original.id,
+                        cell.column.id,
+                        cellValue,
+                      );
+
+                    return (
+                      <div
+                        key={cell.id}
+                        className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} border-b border-gray-200 px-3 py-2 ${
+                          isSelected ? "ring-2 ring-blue-500 ring-inset" : ""
+                        } ${columnIsSorted ? "bg-[#fff2e9]" : ""} ${
+                          columnIsFiltered ? "!bg-[#ecfcec]" : ""
+                        } ${isSearchHighlighted ? "!bg-[#fff3d3]" : ""}`}
+                        style={{
+                          width: cell.column.getSize() || 200,
+                          minWidth: cell.column.getSize() || 200,
+                          maxWidth: cell.column.getSize() || 200,
+                        }}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
+            );
+          }
+
+          // This should never happen, but return null as fallback
+          return null;
         })}
       </div>
     </div>

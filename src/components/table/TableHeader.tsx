@@ -14,7 +14,7 @@ export function TableHeader({
   isColumnFiltered,
 }: TableHeaderProps) {
   return (
-    <thead className="border-b border-gray-200 bg-gray-50">
+    <thead>
       {headerGroups.map((headerGroup) => (
         <tr key={headerGroup.id}>
           {headerGroup.headers.map((header, index) => {
@@ -25,7 +25,7 @@ export function TableHeader({
             return (
               <th
                 key={header.id}
-                className={`${!isFirstColumn ? "border-r" : ""} border-b border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-900 ${
+                className={`${!isFirstColumn ? "border-r" : ""} border-b border-gray-200 px-3 py-2 text-left text-xs text-gray-900 ${
                   columnIsSorted ? "bg-[#fff2e9]" : ""
                 } ${columnIsFiltered ? "!bg-[#ecfcec]" : ""} $`}
                 style={{

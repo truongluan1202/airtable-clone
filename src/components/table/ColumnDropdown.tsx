@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useRef, useEffect } from "react";
 import Image from "next/image";
 
 interface ColumnDropdownProps {
@@ -6,13 +6,15 @@ interface ColumnDropdownProps {
   columnName: string;
   onDeleteColumn: (columnId: string) => void;
   onClose: () => void;
+  isDeletingColumn?: boolean;
 }
 
 export function ColumnDropdown({
   columnId,
-  columnName,
+  columnName: _columnName,
   onDeleteColumn,
   onClose,
+  isDeletingColumn = false,
 }: ColumnDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -41,21 +43,32 @@ export function ColumnDropdown({
   return (
     <div
       ref={dropdownRef}
-      className="absolute top-full left-0 z-50 mt-1 w-48 w-full rounded-md border border-gray-200 bg-white shadow-lg"
+      className="absolute top-full left-0 z-50 mt-1 w-48 rounded-md border border-gray-200 bg-white font-normal shadow-lg"
     >
       <div className="py-1">
         <button
           onClick={handleDeleteColumn}
-          className="flex w-full items-center space-x-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+          disabled={isDeletingColumn}
+          className="flex w-full items-center space-x-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Image
-            src="/icons/checkbox.svg"
-            alt="Delete"
-            width={14}
-            height={14}
-            className="text-red-600"
-          />
-          <span>Delete field</span>
+          {isDeletingColumn ? (
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-300 border-t-red-600"></div>
+          ) : (
+            <svg
+              className="mr-2 h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          )}
+          <span>{isDeletingColumn ? "Deleting..." : "Delete field"}</span>
         </button>
       </div>
     </div>

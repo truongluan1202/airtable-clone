@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
+import { useRef, useEffect } from "react";
 
 interface ToolsDropdownProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTestRows: (count: number) => void;
   isAddingRows: boolean;
+  onDebugFetch?: () => void;
+  onForceLoadAll?: () => void;
 }
 
 export function ToolsDropdown({
@@ -13,6 +14,8 @@ export function ToolsDropdown({
   onClose,
   onAddTestRows,
   isAddingRows,
+  onDebugFetch,
+  onForceLoadAll,
 }: ToolsDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -45,14 +48,48 @@ export function ToolsDropdown({
     >
       {/* Header */}
       <div className="border-b border-gray-200 px-4 py-3">
-        <h3 className="text-sm font-medium text-gray-900">Tools</h3>
+        <h3 className="text-sm text-gray-900">Tools</h3>
       </div>
 
       {/* Content */}
       <div className="py-2">
+        {/* Debug Section */}
+        {onDebugFetch && (
+          <div className="px-4 py-2">
+            <h4 className="mb-2 text-xs tracking-wide text-gray-500 uppercase">
+              Debug
+            </h4>
+            <div className="space-y-1">
+              <button
+                onClick={() => {
+                  onDebugFetch();
+                  onClose();
+                }}
+                className="flex w-full items-center space-x-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <div className="h-2 w-2 rounded-full bg-red-500"></div>
+                <span>Test Fetch Next Page</span>
+              </button>
+
+              {onForceLoadAll && (
+                <button
+                  onClick={() => {
+                    onForceLoadAll();
+                    onClose();
+                  }}
+                  className="flex w-full items-center space-x-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <div className="h-2 w-2 rounded-full bg-orange-500"></div>
+                  <span>Force Load All Data</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Test Data Section */}
         <div className="px-4 py-2">
-          <h4 className="mb-2 text-xs font-medium tracking-wide text-gray-500 uppercase">
+          <h4 className="mb-2 text-xs tracking-wide text-gray-500 uppercase">
             Test Data
           </h4>
           <div className="space-y-1">
