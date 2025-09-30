@@ -30,6 +30,9 @@ export function DataGrid({
   isFetchingNextPage,
   // Total rows for complete table structure
   totalRows,
+  // Bulk loading props
+  isBulkLoading = false,
+  bulkLoadingMessage = "Adding rows...",
 }: DataGridProps & {
   filters?: FilterGroup[];
   enableVirtualization?: boolean;
@@ -172,7 +175,7 @@ export function DataGrid({
 
   if (enableVirtualization) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="relative flex h-full flex-col">
         {/* Header - always visible */}
         <div className="flex-shrink-0 border-b border-gray-200">
           <table style={{ tableLayout: "fixed", width: "auto" }}>
@@ -186,7 +189,7 @@ export function DataGrid({
 
         {/* Virtualized Body - takes remaining space */}
         <div
-          className="flex-1 overflow-hidden"
+          className="relative flex-1 overflow-hidden"
           onKeyDown={handleKeyDown}
           tabIndex={0}
         >
@@ -213,6 +216,25 @@ export function DataGrid({
             // Total rows for complete table structure
             totalRows={totalRows}
           />
+
+          {/* Bulk Loading Overlay */}
+          {isBulkLoading && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-blue-600"></div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {bulkLoadingMessage}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Please wait while we add the rows...
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Row Counter Footer */}
@@ -250,7 +272,7 @@ export function DataGrid({
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="relative h-full overflow-auto">
       <table
         ref={tableRef}
         className="w-full"
@@ -279,6 +301,25 @@ export function DataGrid({
           isAddingRow={isAddingRow}
         />
       </table>
+
+      {/* Bulk Loading Overlay */}
+      {isBulkLoading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-lg">
+            <div className="flex items-center space-x-3">
+              <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-blue-600"></div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {bulkLoadingMessage}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Please wait while we add the rows...
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Row Counter Footer */}
       <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">

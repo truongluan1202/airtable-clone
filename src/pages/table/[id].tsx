@@ -19,17 +19,21 @@ export default function TableDetail() {
   >({});
   const [sort, setSort] = useState<SortConfig[]>([]);
   const [filters, setFilters] = useState<FilterGroup[]>([]);
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
+  const [bulkLoadingMessage, setBulkLoadingMessage] =
+    useState("Adding rows...");
 
   // Get total row count for complete table structure
-  const { data: rowCountData } = api.table.getRowCount.useQuery(
-    { id: id as string },
-    {
-      enabled: !!id,
-      staleTime: 10 * 60 * 1000, // 10 minutes - row count rarely changes
-      gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
-      refetchOnWindowFocus: false,
-    },
-  );
+  const { data: rowCountData, refetch: refetchRowCount } =
+    api.table.getRowCount.useQuery(
+      { id: id as string },
+      {
+        enabled: !!id,
+        staleTime: 10 * 60 * 1000, // 10 minutes - row count rarely changes
+        gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
+        refetchOnWindowFocus: false,
+      },
+    );
 
   // Use infinite query for paginated data
   const {
@@ -38,6 +42,7 @@ export default function TableDetail() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    refetch: refetchTableData,
   } = api.table.getByIdPaginated.useInfiniteQuery(
     {
       id: id as string,
@@ -137,26 +142,119 @@ export default function TableDetail() {
   const utils = api.useUtils();
 
   const addSampleData = api.table.addSampleData.useMutation({
-    onSuccess: (data) => {
+    onMutate: async (variables) => {
+      setIsBulkLoading(true);
+      setBulkLoadingMessage(`Adding ${variables.count} sample rows...`);
+
+      // Cancel any outgoing refetches
+      await utils.table.getByIdPaginated.cancel();
+      await utils.table.getRowCount.cancel();
+
+      // Snapshot previous values
+      const previousData = utils.table.getByIdPaginated.getInfiniteData();
+      const previousRowCount = utils.table.getRowCount.getData({
+        id: variables.tableId,
+      });
+
+      // Optimistically update row count
+      utils.table.getRowCount.setData({ id: variables.tableId }, (oldData) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          totalRows: oldData.totalRows + variables.count,
+        };
+      });
+
+      // Return context for rollback
+      return { previousData, previousRowCount };
+    },
+    onSuccess: async (data) => {
       console.log("✅ Sample data added successfully:", data);
       setShowAddDataModal(false);
-      // Invalidate and refetch the infinite query
+      setIsBulkLoading(false);
+
+      // Refetch both row count and table data to get complete data
+      await Promise.all([refetchRowCount(), refetchTableData()]);
+
+      // Also invalidate cache for consistency
       void utils.table.getByIdPaginated.invalidate();
-      // Also refetch the base tables query
       void utils.table.getByBaseId.invalidate();
+    },
+    onError: (error, variables, context) => {
+      console.error("❌ Error adding sample data:", error);
+      setIsBulkLoading(false);
+
+      // Rollback optimistic updates
+      if (context?.previousData) {
+        utils.table.getByIdPaginated.setInfiniteData(
+          { id: variables.tableId, limit: 500 },
+          context.previousData,
+        );
+      }
+      if (context?.previousRowCount) {
+        utils.table.getRowCount.setData(
+          { id: variables.tableId },
+          context.previousRowCount,
+        );
+      }
     },
   });
 
   const addTestRows = api.table.addSampleData.useMutation({
-    onSuccess: (data) => {
+    onMutate: async (variables) => {
+      setIsBulkLoading(true);
+      setBulkLoadingMessage(`Adding ${variables.count} test rows...`);
+
+      // Cancel any outgoing refetches
+      await utils.table.getByIdPaginated.cancel();
+      await utils.table.getRowCount.cancel();
+
+      // Snapshot previous values
+      const previousData = utils.table.getByIdPaginated.getInfiniteData();
+      const previousRowCount = utils.table.getRowCount.getData({
+        id: variables.tableId,
+      });
+
+      // Optimistically update row count
+      utils.table.getRowCount.setData({ id: variables.tableId }, (oldData) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          totalRows: oldData.totalRows + variables.count,
+        };
+      });
+
+      // Return context for rollback
+      return { previousData, previousRowCount };
+    },
+    onSuccess: async (data) => {
       console.log("✅ Test rows added successfully:", data);
-      // Invalidate and refetch the infinite query
+      setIsBulkLoading(false);
+
+      // Refetch both row count and table data to get complete data
+      await Promise.all([refetchRowCount(), refetchTableData()]);
+
+      // Also invalidate cache for consistency
       void utils.table.getByIdPaginated.invalidate();
-      // Also refetch the base tables query
       void utils.table.getByBaseId.invalidate();
     },
-    onError: (error) => {
-      console.error("Error adding rows:", error);
+    onError: (error, variables, context) => {
+      console.error("❌ Error adding test rows:", error);
+      setIsBulkLoading(false);
+
+      // Rollback optimistic updates
+      if (context?.previousData) {
+        utils.table.getByIdPaginated.setInfiniteData(
+          { id: variables.tableId, limit: 500 },
+          context.previousData,
+        );
+      }
+      if (context?.previousRowCount) {
+        utils.table.getRowCount.setData(
+          { id: variables.tableId },
+          context.previousRowCount,
+        );
+      }
     },
   });
 
@@ -336,6 +434,9 @@ export default function TableDetail() {
               isFetchingNextPage={isFetchingNextPage}
               // Total rows for complete table structure
               totalRows={rowCountData?.totalRows}
+              // Bulk loading props
+              isBulkLoading={isBulkLoading}
+              bulkLoadingMessage={bulkLoadingMessage}
             />
           </TableNavigation>
         </div>

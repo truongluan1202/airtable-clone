@@ -20,6 +20,8 @@ export interface DataGridProps {
   columnVisibility?: Record<string, boolean>;
   onColumnVisibilityChange?: (columnId: string, visible: boolean) => void;
   sort?: SortConfig[];
+  isBulkLoading?: boolean;
+  bulkLoadingMessage?: string;
 }
 
 export interface EditableCellProps {

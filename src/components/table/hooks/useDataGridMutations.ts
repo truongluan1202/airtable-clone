@@ -26,24 +26,86 @@ export function useDataGridMutations(tableId?: string) {
   });
 
   const addColumnMutation = api.table.addColumn.useMutation({
-    onMutate: () => {
+    onMutate: async (variables) => {
       console.log("🔥 Setting add column loading to true");
       setIsAddingColumnLoading(true);
+
+      // Cancel any outgoing refetches
+      await utils.table.getByIdPaginated.cancel();
+
+      // Snapshot previous values
+      const previousData = utils.table.getByIdPaginated.getInfiniteData();
+
+      // Optimistically add the new column to the table structure
+      utils.table.getByIdPaginated.setInfiniteData(
+        { id: variables.tableId, limit: 500 },
+        (oldData) => {
+          if (!oldData) return oldData;
+
+          // Create optimistic column data
+          const optimisticColumn = {
+            id: `temp-col-${Date.now()}`,
+            name: variables.name,
+            type: variables.type,
+            createdAt: new Date(),
+          };
+
+          const newPages = oldData.pages.map((page) => ({
+            ...page,
+            table: {
+              ...page.table,
+              columns: [...page.table.columns, optimisticColumn],
+            },
+            // Add empty cells for the new column to all existing rows
+            rows: page.rows.map((row: any) => ({
+              ...row,
+              cells: [
+                ...row.cells,
+                {
+                  id: `temp-cell-${Date.now()}-${row.id}`,
+                  rowId: row.id,
+                  columnId: optimisticColumn.id,
+                  vText: null,
+                  vNumber: null,
+                },
+              ],
+            })),
+          }));
+
+          return {
+            ...oldData,
+            pages: newPages,
+          };
+        },
+      );
+
+      // Return context for rollback
+      return { previousData };
     },
     onSuccess: (data) => {
       console.log("✅ Column added successfully:", data);
+
+      // Invalidate to ensure consistency and get real data
       void utils.table.getById.invalidate();
-      // For infinite query, we need to invalidate to refetch all pages with new column structure
       void utils.table.getByIdPaginated.invalidate();
 
       // Keep loading state visible for a bit longer so user can see the new column
       setTimeout(() => {
         setIsAddingColumnLoading(false);
-      }, 1000);
+      }, 500);
     },
-    onError: (error) => {
+    onError: (error, variables, context) => {
       console.error("❌ Failed to add column:", error);
       setIsAddingColumnLoading(false);
+
+      // Rollback optimistic updates
+      if (context?.previousData) {
+        utils.table.getByIdPaginated.setInfiniteData(
+          { id: variables.tableId, limit: 500 },
+          context.previousData,
+        );
+      }
+
       // Show user-friendly error message
       const errorMessage = error.message || "Failed to add column";
       alert(`Error: ${errorMessage}`);
@@ -51,69 +113,214 @@ export function useDataGridMutations(tableId?: string) {
   });
 
   const addRowMutation = api.table.addRow.useMutation({
-    onMutate: () => {
+    onMutate: async (variables) => {
       console.log("🔥 Setting add row loading to true");
       setIsAddingRowLoading(true);
+
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await utils.table.getByIdPaginated.cancel();
+      await utils.table.getRowCount.cancel();
+
+      // Snapshot the previous values
+      const previousData = utils.table.getByIdPaginated.getInfiniteData();
+      const previousRowCount = utils.table.getRowCount.getData({
+        id: variables.tableId,
+      });
+
+      // Optimistically update row count
+      utils.table.getRowCount.setData({ id: variables.tableId }, (oldData) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          totalRows: oldData.totalRows + 1,
+        };
+      });
+
+      // For single row addition, we'll just update the row count optimistically
+      // and let the natural data flow handle the row positioning when it refetches
+      // This avoids complex pagination logic and ensures consistency with database ordering
+
+      // Return context with the previous data for rollback
+      return { previousData, previousRowCount };
     },
     onSuccess: (data) => {
       console.log("✅ Row added successfully:", data);
-      void utils.table.getById.invalidate();
-      // For infinite query, we need to invalidate to refetch all pages
-      void utils.table.getByIdPaginated.invalidate();
 
-      // Keep loading state visible for a bit longer so user can see the new row, if the ui already updated set false immediately
+      // Invalidate to refetch the data with the new row in the correct position
+      void utils.table.getByIdPaginated.invalidate();
+      void utils.table.getRowCount.invalidate();
+
+      // Keep loading state visible for a bit longer so user can see the new row
       setTimeout(() => {
-        if (data.id) {
-          setIsAddingRowLoading(false);
-        }
-      }, 1000);
+        setIsAddingRowLoading(false);
+      }, 500);
     },
-    onError: (error) => {
+    onError: (error, variables, context) => {
       console.error("❌ Failed to add row:", error);
       setIsAddingRowLoading(false);
+
+      // Rollback the optimistic updates
+      if (context?.previousData) {
+        utils.table.getByIdPaginated.setInfiniteData(
+          { id: variables.tableId, limit: 500 },
+          context.previousData,
+        );
+      }
+      if (context?.previousRowCount) {
+        utils.table.getRowCount.setData(
+          { id: variables.tableId },
+          context.previousRowCount,
+        );
+      }
     },
   });
 
   const deleteRowMutation = api.table.deleteRow.useMutation({
-    onMutate: (variables) => {
+    onMutate: async (variables) => {
       console.log("🔥 Delete row mutation started with:", variables);
       setIsDeletingRowLoading(true);
+
+      // Cancel any outgoing refetches
+      await utils.table.getByIdPaginated.cancel();
+      await utils.table.getRowCount.cancel();
+
+      // Snapshot previous values
+      const previousData = utils.table.getByIdPaginated.getInfiniteData();
+      const previousRowCount = utils.table.getRowCount.getData({
+        id: tableId ?? "",
+      });
+
+      // Optimistically remove the row from the infinite query data
+      utils.table.getByIdPaginated.setInfiniteData(
+        { id: tableId ?? "", limit: 500 },
+        (oldData) => {
+          if (!oldData) return oldData;
+
+          const newPages = oldData.pages.map((page) => ({
+            ...page,
+            rows: page.rows.filter((row: any) => row.id !== variables.rowId),
+          }));
+
+          return {
+            ...oldData,
+            pages: newPages,
+          };
+        },
+      );
+
+      // Optimistically update row count
+      utils.table.getRowCount.setData({ id: tableId ?? "" }, (oldData) => {
+        if (!oldData) return oldData;
+        return {
+          ...oldData,
+          totalRows: Math.max(0, oldData.totalRows - 1),
+        };
+      });
+
+      // Return context for rollback
+      return { previousData, previousRowCount };
     },
     onSuccess: (data) => {
       console.log("✅ Row deleted successfully:", data);
+
+      // Invalidate to ensure consistency
       void utils.table.getById.invalidate();
       void utils.table.getByIdPaginated.invalidate();
+      void utils.table.getRowCount.invalidate();
 
       // Keep loading state visible for a bit longer so user can see the row was deleted
       setTimeout(() => {
         setIsDeletingRowLoading(false);
-      }, 800);
+      }, 500);
     },
-    onError: (error) => {
+    onError: (error, variables, context) => {
       console.error("❌ Failed to delete row:", error);
       console.error("❌ Error details:", error.message, error.data);
       setIsDeletingRowLoading(false);
+
+      // Rollback optimistic updates
+      if (context?.previousData) {
+        utils.table.getByIdPaginated.setInfiniteData(
+          { id: tableId ?? "", limit: 500 },
+          context.previousData,
+        );
+      }
+      if (context?.previousRowCount) {
+        utils.table.getRowCount.setData(
+          { id: tableId ?? "" },
+          context.previousRowCount,
+        );
+      }
     },
   });
 
   const deleteColumnMutation = api.table.deleteColumn.useMutation({
-    onMutate: () => {
+    onMutate: async (variables) => {
       console.log("🔥 Setting delete column loading to true");
       setIsDeletingColumnLoading(true);
+
+      // Cancel any outgoing refetches
+      await utils.table.getByIdPaginated.cancel();
+
+      // Snapshot previous values
+      const previousData = utils.table.getByIdPaginated.getInfiniteData();
+
+      // Optimistically remove the column from the table structure
+      utils.table.getByIdPaginated.setInfiniteData(
+        { id: tableId ?? "", limit: 500 },
+        (oldData) => {
+          if (!oldData) return oldData;
+
+          const newPages = oldData.pages.map((page) => ({
+            ...page,
+            table: {
+              ...page.table,
+              columns: page.table.columns.filter(
+                (col: any) => col.id !== variables.columnId,
+              ),
+            },
+            // Remove cells for the deleted column from all rows
+            rows: page.rows.map((row: any) => ({
+              ...row,
+              cells: row.cells.filter(
+                (cell: any) => cell.columnId !== variables.columnId,
+              ),
+            })),
+          }));
+
+          return {
+            ...oldData,
+            pages: newPages,
+          };
+        },
+      );
+
+      // Return context for rollback
+      return { previousData };
     },
     onSuccess: (data) => {
       console.log("✅ Column deleted successfully:", data);
+
+      // Invalidate to ensure consistency
       void utils.table.getById.invalidate();
       void utils.table.getByIdPaginated.invalidate();
 
       // Keep loading state visible for a bit longer so user can see the column was deleted
       setTimeout(() => {
         setIsDeletingColumnLoading(false);
-      }, 800);
+      }, 500);
     },
-    onError: (error) => {
+    onError: (error, variables, context) => {
       console.error("❌ Failed to delete column:", error);
       setIsDeletingColumnLoading(false);
+
+      // Rollback optimistic updates
+      if (context?.previousData) {
+        utils.table.getByIdPaginated.setInfiniteData(
+          { id: tableId ?? "", limit: 500 },
+          context.previousData,
+        );
+      }
     },
   });
 

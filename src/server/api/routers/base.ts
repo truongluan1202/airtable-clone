@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { randomUUID } from "crypto";
 
 export const baseRouter = createTRPCRouter({
   // Get all bases for the current user
@@ -148,79 +149,89 @@ export const baseRouter = createTRPCRouter({
 
       // Add sample data
       const { faker } = await import("@faker-js/faker");
-      const sampleRows = Array.from({ length: 5 }, () => ({
-        tableId: table.id,
-        cache: {},
-        search: "",
-      }));
 
-      await ctx.prisma.row.createMany({
-        data: sampleRows,
-      });
+      // Use transaction for atomic operations
+      await ctx.prisma.$transaction(async (tx: any) => {
+        // Pre-generate row IDs
+        const rowIds = Array.from({ length: 5 }, () => randomUUID());
 
-      // Get the created rows to add cells
-      const createdRows = await ctx.prisma.row.findMany({
-        where: { tableId: table.id },
-      });
+        // Create rows with pre-generated IDs
+        const sampleRows = rowIds.map((id) => ({
+          id,
+          tableId: table.id,
+          cache: {},
+          search: "",
+        }));
 
-      // Create cells with sample data
-      const cells = [];
-      for (const row of createdRows) {
-        for (const column of table.columns) {
-          let value;
-          if (column.type === "TEXT") {
-            if (column.name.toLowerCase().includes("name")) {
-              value = faker.person.fullName();
-            } else if (column.name.toLowerCase().includes("email")) {
-              value = faker.internet.email();
-            } else {
-              value = faker.lorem.words(2);
+        await tx.row.createMany({
+          data: sampleRows,
+        });
+
+        // Pre-generate all cell data and cache
+        const cells = [];
+        const rowUpdates = [];
+
+        for (let i = 0; i < 5; i++) {
+          const rowId = rowIds[i];
+          const cache: Record<string, string | number | null> = {};
+          const searchTexts: string[] = [];
+
+          for (const column of table.columns) {
+            let value;
+            if (column.type === "TEXT") {
+              if (column.name.toLowerCase().includes("name")) {
+                value = faker.person.fullName();
+              } else if (column.name.toLowerCase().includes("email")) {
+                value = faker.internet.email();
+              } else {
+                value = faker.lorem.words(2);
+              }
+            } else if (column.type === "NUMBER") {
+              value = faker.number.int({ min: 1, max: 100 });
             }
-          } else if (column.type === "NUMBER") {
-            value = faker.number.int({ min: 1, max: 100 });
+
+            // Add to cache and search
+            cache[column.id] = value ?? null;
+            if (value) {
+              searchTexts.push(String(value));
+            }
+
+            // Create cell data
+            cells.push({
+              rowId,
+              columnId: column.id,
+              vText: column.type === "TEXT" ? value : null,
+              vNumber: column.type === "NUMBER" ? value : null,
+            });
           }
 
-          cells.push({
-            rowId: row.id,
-            columnId: column.id,
-            vText: column.type === "TEXT" ? value : null,
-            vNumber: column.type === "NUMBER" ? value : null,
+          // Prepare row update data
+          rowUpdates.push({
+            id: rowId,
+            cache,
+            search: searchTexts.join(" "),
           });
         }
-      }
 
-      await ctx.prisma.cell.createMany({
-        data: cells,
-      });
-
-      // Update row cache and search
-      for (const row of createdRows) {
-        const rowCells = cells.filter((cell) => cell.rowId === row.id);
-        const cache: Record<string, string | number | null> = {};
-        const searchTexts: string[] = [];
-
-        for (const cell of rowCells) {
-          const column = table.columns.find(
-            (col: { id: string }) => col.id === cell.columnId,
-          );
-          if (column) {
-            const cellValue = cell.vText ?? cell.vNumber;
-
-            cache[column.id] = cellValue ?? null;
-            if (cellValue) {
-              searchTexts.push(String(cellValue));
-            }
-          }
-        }
-
-        await ctx.prisma.row.update({
-          where: { id: row.id },
-          data: {
-            cache: cache,
-            search: searchTexts.join(" "),
-          },
+        // Bulk create cells
+        await tx.cell.createMany({
+          data: cells,
+          skipDuplicates: true,
         });
-      }
+
+        // Bulk update rows with cache and search data
+        await Promise.all(
+          rowUpdates.map((update) =>
+            tx.row.update({
+              where: { id: update.id },
+              data: {
+                cache: update.cache,
+                search: update.search,
+              },
+            }),
+          ),
+        );
+      });
 
       return base;
     }),
