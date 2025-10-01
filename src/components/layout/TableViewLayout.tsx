@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { api } from "~/utils/api";
 import { UserDropdown } from "~/components/ui";
 import { ToolsDropdown } from "~/components/table/ToolsDropdown";
+import { TableContextMenu } from "~/components/table/TableContextMenu";
 
 interface TableViewLayoutProps {
   children: React.ReactNode;
@@ -15,8 +16,6 @@ interface TableViewLayoutProps {
   onTableCreated?: () => void;
   onAddTestRows?: (count: number) => void;
   isAddingRows?: boolean;
-  onDebugFetch?: () => void;
-  onForceLoadAll?: () => void;
 }
 
 export function TableViewLayout({
@@ -29,14 +28,23 @@ export function TableViewLayout({
   onTableCreated,
   onAddTestRows,
   isAddingRows = false,
-  onDebugFetch,
-  onForceLoadAll,
 }: TableViewLayoutProps) {
   const [activeTab, setActiveTab] = useState("Data");
   const [showCreateTable, setShowCreateTable] = useState(false);
   const [showToolsDropdown, setShowToolsDropdown] = useState(false);
   const [tableNameInput, setTableNameInput] = useState("");
   const [tableDescription, setTableDescription] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+    tableId: string;
+    tableName: string;
+  }>({
+    isOpen: false,
+    position: { x: 0, y: 0 },
+    tableId: "",
+    tableName: "",
+  });
   const router = useRouter();
 
   const createTable = api.table.create.useMutation({
@@ -50,6 +58,38 @@ export function TableViewLayout({
     },
   });
 
+  const deleteTable = api.table.delete.useMutation({
+    onSuccess: () => {
+      setContextMenu({
+        isOpen: false,
+        position: { x: 0, y: 0 },
+        tableId: "",
+        tableName: "",
+      });
+      onTableCreated?.(); // Refresh the tables list
+      // If we deleted the current table, redirect to the base
+      if (contextMenu.tableId === router.query.id) {
+        void router.push(`/base/${baseId}`);
+      }
+    },
+    onError: (error) => {
+      console.error("Error deleting table:", error);
+      setContextMenu({
+        isOpen: false,
+        position: { x: 0, y: 0 },
+        tableId: "",
+        tableName: "",
+      });
+
+      // Show user-friendly error message
+      const errorMessage = error.message.includes("last table in a base")
+        ? "Cannot delete the last table in a base. A base must have at least one table."
+        : "Failed to delete table. Please try again.";
+
+      alert(errorMessage);
+    },
+  });
+
   const handleCreateTable = () => {
     if (tableNameInput.trim() && baseId) {
       createTable.mutate({
@@ -59,6 +99,46 @@ export function TableViewLayout({
         withSampleData: true,
       });
     }
+  };
+
+  const handleTableRightClick = (
+    event: React.MouseEvent,
+    tableId: string,
+    tableName: string,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setContextMenu({
+      isOpen: true,
+      position: { x: event.clientX, y: event.clientY },
+      tableId,
+      tableName,
+    });
+  };
+
+  // Check if delete should be disabled (only one table in base)
+  const isDeleteDisabled = tables.length <= 1;
+
+  const handleDeleteTable = () => {
+    if (contextMenu.tableId) {
+      if (
+        confirm(
+          `Are you sure you want to delete "${contextMenu.tableName}"? This action cannot be undone.`,
+        )
+      ) {
+        deleteTable.mutate({ id: contextMenu.tableId });
+      }
+    }
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu({
+      isOpen: false,
+      position: { x: 0, y: 0 },
+      tableId: "",
+      tableName: "",
+    });
   };
 
   return (
@@ -226,6 +306,9 @@ export function TableViewLayout({
                     <button
                       key={table.id}
                       onClick={() => onTableSelect?.(table.id)}
+                      onContextMenu={(e) =>
+                        handleTableRightClick(e, table.id, table.name)
+                      }
                       className={[
                         "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs transition-colors",
                         active
@@ -280,8 +363,6 @@ export function TableViewLayout({
                 onClose={() => setShowToolsDropdown(false)}
                 onAddTestRows={onAddTestRows ?? (() => undefined)}
                 isAddingRows={isAddingRows}
-                onDebugFetch={onDebugFetch}
-                onForceLoadAll={onForceLoadAll}
               />
             </div>
           </div>
@@ -346,6 +427,16 @@ export function TableViewLayout({
           </div>
         </div>
       )}
+
+      {/* Context Menu */}
+      <TableContextMenu
+        isOpen={contextMenu.isOpen}
+        onClose={closeContextMenu}
+        position={contextMenu.position}
+        onDelete={handleDeleteTable}
+        tableName={contextMenu.tableName}
+        isDeleteDisabled={isDeleteDisabled}
+      />
     </div>
   );
 }

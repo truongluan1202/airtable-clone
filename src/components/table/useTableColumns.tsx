@@ -47,7 +47,6 @@ interface UseTableColumnsProps {
   ) => string;
   handleCellUpdate: (rowId: string, columnId: string, value: string) => void;
   isEditing: (rowId: string, columnId: string) => boolean;
-  isSelected: (rowId: string, columnId: string) => boolean;
   handleCellEdit: (rowId: string, columnId: string) => void;
   handleCellSelect: (rowId: string, columnId: string) => void;
   handleCellStopEdit: () => void;
@@ -63,6 +62,7 @@ interface UseTableColumnsProps {
   // Loading states
   isAddingColumn?: boolean;
   isDeletingColumn?: boolean;
+  isDataLoading?: boolean;
 }
 
 export function useTableColumns({
@@ -72,7 +72,6 @@ export function useTableColumns({
   getCellValue,
   handleCellUpdate,
   isEditing,
-  isSelected,
   handleCellEdit,
   handleCellSelect,
   handleCellStopEdit,
@@ -87,13 +86,9 @@ export function useTableColumns({
   isRowHovered,
   isAddingColumn = false,
   isDeletingColumn = false,
+  isDataLoading = false,
 }: UseTableColumnsProps): ColumnDef<DataRow, any>[] {
   const columnHelper = createColumnHelper<DataRow>();
-
-  console.log("🔥 useTableColumns loading states:", {
-    isAddingColumn,
-    isDeletingColumn,
-  });
 
   const tableColumns = useMemo(() => {
     const cols: ColumnDef<DataRow, any>[] = [
@@ -193,6 +188,7 @@ export function useTableColumns({
                     onDeleteColumn={handleDeleteColumn}
                     onClose={() => setOpenColumnDropdown(null)}
                     isDeletingColumn={isDeletingColumn}
+                    isDataLoading={isDataLoading}
                   />
                 )}
               </div>
@@ -211,7 +207,6 @@ export function useTableColumns({
                   handleCellUpdate(row.original.id, column.id, value)
                 }
                 isEditing={isEditing(row.original.id, column.id)}
-                isSelected={isSelected(row.original.id, column.id)}
                 onStartEdit={() => handleCellEdit(row.original.id, column.id)}
                 onStopEdit={handleCellStopEdit}
                 onSelect={() => handleCellSelect(row.original.id, column.id)}
@@ -254,6 +249,7 @@ export function useTableColumns({
                 onAddColumn={handleAddColumn}
                 onClose={() => setShowAddColumnDropdown(false)}
                 isLoading={isAddingColumn}
+                isDataLoading={isDataLoading}
               />
             )}
           </div>
@@ -272,7 +268,6 @@ export function useTableColumns({
     getCellValue,
     handleCellUpdate,
     isEditing,
-    isSelected,
     handleCellEdit,
     handleCellSelect,
     handleCellStopEdit,
@@ -287,6 +282,7 @@ export function useTableColumns({
     isRowHovered,
     isAddingColumn,
     isDeletingColumn,
+    isDataLoading,
   ]);
 
   return tableColumns;

@@ -1,5 +1,4 @@
 import { useRef, useEffect } from "react";
-import Image from "next/image";
 
 interface ColumnDropdownProps {
   columnId: string;
@@ -7,6 +6,7 @@ interface ColumnDropdownProps {
   onDeleteColumn: (columnId: string) => void;
   onClose: () => void;
   isDeletingColumn?: boolean;
+  isDataLoading?: boolean;
 }
 
 export function ColumnDropdown({
@@ -15,6 +15,7 @@ export function ColumnDropdown({
   onDeleteColumn,
   onClose,
   isDeletingColumn = false,
+  isDataLoading = false,
 }: ColumnDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -48,8 +49,13 @@ export function ColumnDropdown({
       <div className="py-1">
         <button
           onClick={handleDeleteColumn}
-          disabled={isDeletingColumn}
+          disabled={isDeletingColumn || isDataLoading}
           className="flex w-full items-center space-x-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          title={
+            isDataLoading
+              ? "Cannot delete column while data is loading"
+              : undefined
+          }
         >
           {isDeletingColumn ? (
             <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-300 border-t-red-600"></div>

@@ -33,6 +33,8 @@ export function DataGrid({
   // Bulk loading props
   isBulkLoading = false,
   bulkLoadingMessage = "Adding rows...",
+  // Data loading state to disable operations
+  isDataLoading = false,
 }: DataGridProps & {
   filters?: FilterGroup[];
   enableVirtualization?: boolean;
@@ -40,10 +42,8 @@ export function DataGrid({
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
   totalRows?: number;
+  isDataLoading?: boolean;
 }) {
-  console.log("🔥 DataGrid rendered with tableId:", tableId);
-  console.log("🔍 Search query in DataGrid:", searchQuery);
-
   const tableRef = useRef<HTMLTableElement>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
@@ -68,7 +68,6 @@ export function DataGrid({
     toggleRowSelection,
     handleContextMenu,
     getCellValue,
-    isSelected,
     isEditing,
   } = useDataGridState();
 
@@ -83,7 +82,7 @@ export function DataGrid({
     isAddingRow,
     isDeletingRow,
     isDeletingColumn,
-  } = useDataGridMutations(tableId);
+  } = useDataGridMutations(tableId, isDataLoading);
 
   // Custom hook for search and sort logic
   const {
@@ -136,7 +135,6 @@ export function DataGrid({
     handleCellUpdate: (rowId: string, columnId: string, value: string) =>
       handleCellUpdate(rowId, columnId, value, columns, setCellValues),
     isEditing,
-    isSelected,
     handleCellEdit,
     handleCellSelect,
     handleCellStopEdit,
@@ -151,6 +149,7 @@ export function DataGrid({
     isRowHovered: (rowId: string) => hoveredRowId === rowId,
     isAddingColumn,
     isDeletingColumn,
+    isDataLoading,
   });
 
   // Keyboard navigation hook
@@ -213,6 +212,7 @@ export function DataGrid({
             onRowHover={setHoveredRowId}
             // Loading states
             isAddingRow={isAddingRow}
+            isDataLoading={isDataLoading}
             // Total rows for complete table structure
             totalRows={totalRows}
           />
@@ -265,6 +265,7 @@ export function DataGrid({
             onDeleteRow={handleDeleteRow}
             onClose={() => setContextMenu(null)}
             isDeletingRow={isDeletingRow}
+            isDataLoading={isDataLoading}
           />
         )}
       </div>
@@ -349,6 +350,7 @@ export function DataGrid({
           onDeleteRow={handleDeleteRow}
           onClose={() => setContextMenu(null)}
           isDeletingRow={isDeletingRow}
+          isDataLoading={isDataLoading}
         />
       )}
     </div>

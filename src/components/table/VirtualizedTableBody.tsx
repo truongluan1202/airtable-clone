@@ -32,6 +32,7 @@ interface VirtualizedTableBodyProps {
   onRowHover?: (rowId: string | null) => void;
   // Loading states
   isAddingRow?: boolean;
+  isDataLoading?: boolean;
   // Total rows for complete table structure
   totalRows?: number;
 }
@@ -53,6 +54,7 @@ export function VirtualizedTableBody({
   isFetchingNextPage,
   onRowHover,
   isAddingRow = false,
+  isDataLoading = false,
   totalRows = 0,
 }: VirtualizedTableBodyProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -66,13 +68,17 @@ export function VirtualizedTableBody({
     estimateSize: () => 41, // Estimated row height in pixels (40px + 1px border)
     overscan: 10, // Reduced overscan for better performance
     measureElement: undefined, // Disable dynamic measurement for better performance
+    getItemKey: (index) => {
+      // Stable keys to prevent row remounting as skeletons resolve
+      if (index === completeRowCount - 1) return "add-row";
+      if (index < rows.length) return rows[index]?.id ?? `real-${index}`;
+      return `skeleton-${index}`;
+    },
   });
 
   // console.log("🎯 Complete table structure:", { totalRows, loadedRows: rows.length, completeRowCount, virtualItems: virtualizer.getVirtualItems().length, hasNextPage, isFetchingNextPage });
 
-  // Automatic background fetching - continuously load all data
-
-  // Start automatic fetching when component mounts and has data to fetch
+  // Automatic background fetching - capped at ≤2 in flight
   useEffect(() => {
     // Always try to fetch more data if we have less than total rows
     if (
@@ -83,12 +89,29 @@ export function VirtualizedTableBody({
     ) {
       // console.log("🚀 Auto-fetching more data...", { hasNextPage, isFetchingNextPage, fetchNextPage: !!fetchNextPage, totalRows, loadedRows: rows.length, remainingRows: totalRows - rows.length });
 
-      // Fetch immediately with a small delay to prevent overwhelming the server
-      const timeoutId = setTimeout(() => {
-        fetchNextPage();
-      }, 50); // 50ms delay for batching
+      // Fetch immediately without delay
+      fetchNextPage();
+    }
+  }, [totalRows, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-      return () => clearTimeout(timeoutId);
+  // Limited parallel look-ahead fetching (≤2 requests in parallel)
+  useEffect(() => {
+    if (
+      totalRows > 0 &&
+      rows.length < totalRows &&
+      !isFetchingNextPage &&
+      fetchNextPage &&
+      hasNextPage
+    ) {
+      // Calculate how many more requests we can make in parallel
+      const remainingRows = totalRows - rows.length;
+      // Backend handles dynamic page sizing: first page = 500, subsequent = ALL remaining rows
+      const pageSize = remainingRows; // Backend loads all remaining rows in one go
+      const remainingPages = 1; // Only one more request needed
+      const maxParallelRequests = 1; // Only one request for all remaining data
+
+      // Since backend loads all remaining rows in one go, no additional parallel requests needed
+      // The main auto-fetch effect above will handle the single request for all remaining data
     }
   }, [totalRows, rows.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
@@ -144,14 +167,20 @@ export function VirtualizedTableBody({
                   left: 0,
                   width: "auto",
                   height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  transform: `translate3d(0, ${virtualRow.start}px, 0)`,
+                  willChange: "transform",
                 }}
               >
                 <div className="flex w-full items-center border-r border-b border-gray-200 bg-white px-3 py-2">
                   <button
                     onClick={handleAddRow}
-                    disabled={isAddingRow}
+                    disabled={isAddingRow || isDataLoading}
                     className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    title={
+                      isDataLoading
+                        ? "Cannot add row while data is loading"
+                        : undefined
+                    }
                   >
                     {isAddingRow ? (
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>
@@ -190,7 +219,8 @@ export function VirtualizedTableBody({
                   left: 0,
                   width: "auto",
                   height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  transform: `translate3d(0, ${virtualRow.start}px, 0)`,
+                  willChange: "transform",
                   backgroundColor: "#fafbfc", // Skeleton background
                   borderBottom: "1px solid #e5e7eb",
                 }}
@@ -282,7 +312,8 @@ export function VirtualizedTableBody({
                   left: 0,
                   width: "auto",
                   height: `${virtualRow.size}px`,
-                  transform: `translateY(${virtualRow.start}px)`,
+                  transform: `translate3d(0, ${virtualRow.start}px, 0)`,
+                  willChange: "transform",
                   backgroundColor: "white",
                   borderBottom: "1px solid #e5e7eb",
                 }}

@@ -5,12 +5,14 @@ interface AddColumnDropdownProps {
   onAddColumn: (name: string, type: "TEXT" | "NUMBER") => void;
   onClose: () => void;
   isLoading?: boolean;
+  isDataLoading?: boolean;
 }
 
 export function AddColumnDropdown({
   onAddColumn,
   onClose,
   isLoading = false,
+  isDataLoading = false,
 }: AddColumnDropdownProps) {
   const [columnName, setColumnName] = useState("");
   const [columnType, setColumnType] = useState<"TEXT" | "NUMBER">("TEXT");
@@ -69,9 +71,14 @@ export function AddColumnDropdown({
             type="text"
             value={columnName}
             onChange={(e) => setColumnName(e.target.value)}
-            placeholder="Enter field name..."
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            placeholder={
+              isDataLoading
+                ? "Cannot add column while data is loading"
+                : "Enter field name..."
+            }
+            className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
             required
+            disabled={isDataLoading}
           />
         </div>
 
@@ -80,7 +87,8 @@ export function AddColumnDropdown({
             <button
               type="button"
               onClick={() => setIsOpen(!isOpen)}
-              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-left text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-left text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
+              disabled={isDataLoading}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
@@ -180,8 +188,13 @@ export function AddColumnDropdown({
           </button>
           <button
             type="submit"
-            disabled={!columnName.trim() || isLoading}
+            disabled={!columnName.trim() || isLoading || isDataLoading}
             className="flex items-center space-x-2 rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500"
+            title={
+              isDataLoading
+                ? "Cannot add column while data is loading"
+                : undefined
+            }
           >
             {isLoading && (
               <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"></div>

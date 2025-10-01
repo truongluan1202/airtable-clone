@@ -12,10 +12,11 @@ export default function BaseDetail() {
   const [tableName, setTableName] = useState("");
   const [tableDescription, setTableDescription] = useState("");
 
-  const { data: base, isLoading: baseLoading } = api.base.getById.useQuery(
-    { id: id as string },
-    { enabled: !!id },
-  );
+  const {
+    data: base,
+    isLoading: baseLoading,
+    isError: baseError,
+  } = api.base.getById.useQuery({ id: id as string }, { enabled: !!id });
 
   const { data: tables, refetch: refetchTables } =
     api.table.getByBaseId.useQuery({ baseId: id as string }, { enabled: !!id });
@@ -74,7 +75,7 @@ export default function BaseDetail() {
     return null;
   }
 
-  if (!base) {
+  if (baseError) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white">
         <div className="text-center">
@@ -88,6 +89,18 @@ export default function BaseDetail() {
           >
             Back to Workspace
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading while base data is being fetched
+  if (!base) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">Loading base...</p>
         </div>
       </div>
     );

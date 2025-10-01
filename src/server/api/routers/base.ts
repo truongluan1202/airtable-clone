@@ -150,88 +150,95 @@ export const baseRouter = createTRPCRouter({
       // Add sample data
       const { faker } = await import("@faker-js/faker");
 
-      // Use transaction for atomic operations
-      await ctx.prisma.$transaction(async (tx: any) => {
-        // Pre-generate row IDs
-        const rowIds = Array.from({ length: 5 }, () => randomUUID());
+      // Use transaction for atomic operations with optimized bulk creation
+      await ctx.prisma.$transaction(
+        async (tx: any) => {
+          // Pre-generate row IDs
+          const rowIds = Array.from({ length: 5 }, () => randomUUID());
 
-        // Create rows with pre-generated IDs
-        const sampleRows = rowIds.map((id) => ({
-          id,
-          tableId: table.id,
-          cache: {},
-          search: "",
-        }));
+          // Pre-generate all data in memory
+          const sampleRows = [];
+          const cells = [];
 
-        await tx.row.createMany({
-          data: sampleRows,
-        });
+          for (let i = 0; i < 5; i++) {
+            const rowId = rowIds[i];
+            const cache: Record<string, string | number | null> = {};
+            const searchTexts: string[] = [];
 
-        // Pre-generate all cell data and cache
-        const cells = [];
-        const rowUpdates = [];
-
-        for (let i = 0; i < 5; i++) {
-          const rowId = rowIds[i];
-          const cache: Record<string, string | number | null> = {};
-          const searchTexts: string[] = [];
-
-          for (const column of table.columns) {
-            let value;
-            if (column.type === "TEXT") {
-              if (column.name.toLowerCase().includes("name")) {
-                value = faker.person.fullName();
-              } else if (column.name.toLowerCase().includes("email")) {
-                value = faker.internet.email();
-              } else {
-                value = faker.lorem.words(2);
+            for (const column of table.columns) {
+              let value;
+              if (column.type === "TEXT") {
+                if (column.name.toLowerCase().includes("name")) {
+                  value = faker.person.fullName();
+                } else if (column.name.toLowerCase().includes("email")) {
+                  value = faker.internet.email();
+                } else {
+                  value = faker.lorem.words(2);
+                }
+              } else if (column.type === "NUMBER") {
+                value = faker.number.int({ min: 1, max: 100 });
               }
-            } else if (column.type === "NUMBER") {
-              value = faker.number.int({ min: 1, max: 100 });
+
+              // Add to cache and search
+              cache[column.id] = value ?? null;
+              if (value) {
+                searchTexts.push(String(value));
+              }
+
+              // Create cell data
+              cells.push({
+                rowId,
+                columnId: column.id,
+                vText: column.type === "TEXT" ? value : null,
+                vNumber: column.type === "NUMBER" ? value : null,
+              });
             }
 
-            // Add to cache and search
-            cache[column.id] = value ?? null;
-            if (value) {
-              searchTexts.push(String(value));
-            }
-
-            // Create cell data
-            cells.push({
-              rowId,
-              columnId: column.id,
-              vText: column.type === "TEXT" ? value : null,
-              vNumber: column.type === "NUMBER" ? value : null,
+            // Create row with cache and search data included
+            sampleRows.push({
+              id: rowId,
+              tableId: table.id,
+              cache,
+              search: searchTexts.join(" "),
             });
           }
 
-          // Prepare row update data
-          rowUpdates.push({
-            id: rowId,
-            cache,
-            search: searchTexts.join(" "),
-          });
-        }
+          // Ultra-fast raw SQL bulk insert for rows
+          if (sampleRows.length > 0) {
+            const rowValues = sampleRows
+              .map(
+                (row) =>
+                  `('${row.id}', '${row.tableId}', '${JSON.stringify(row.cache).replace(/'/g, "''")}', '${row.search.replace(/'/g, "''")}', NOW(), NOW())`,
+              )
+              .join(",");
 
-        // Bulk create cells
-        await tx.cell.createMany({
-          data: cells,
-          skipDuplicates: true,
-        });
+            await tx.$executeRawUnsafe(`
+              INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
+              VALUES ${rowValues}
+              ON CONFLICT (id) DO NOTHING
+            `);
+          }
 
-        // Bulk update rows with cache and search data
-        await Promise.all(
-          rowUpdates.map((update) =>
-            tx.row.update({
-              where: { id: update.id },
-              data: {
-                cache: update.cache,
-                search: update.search,
-              },
-            }),
-          ),
-        );
-      });
+          // Ultra-fast raw SQL bulk insert for cells
+          if (cells.length > 0) {
+            const cellValues = cells
+              .map(
+                (cell) =>
+                  `('${randomUUID()}', '${cell.rowId}', '${cell.columnId}', ${cell.vText ? `'${cell.vText.toString().replace(/'/g, "''")}'` : "NULL"}, ${cell.vNumber ?? "NULL"}, NOW(), NOW())`,
+              )
+              .join(",");
+
+            await tx.$executeRawUnsafe(`
+              INSERT INTO "Cell" (id, "rowId", "columnId", "vText", "vNumber", "createdAt", "updatedAt")
+              VALUES ${cellValues}
+              ON CONFLICT ("rowId", "columnId") DO NOTHING
+            `);
+          }
+        },
+        {
+          timeout: 30000, // 30 seconds timeout for ultra-large batches
+        },
+      );
 
       return base;
     }),

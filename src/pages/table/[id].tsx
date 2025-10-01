@@ -24,16 +24,15 @@ export default function TableDetail() {
     useState("Adding rows...");
 
   // Get total row count for complete table structure
-  const { data: rowCountData, refetch: refetchRowCount } =
-    api.table.getRowCount.useQuery(
-      { id: id as string },
-      {
-        enabled: !!id,
-        staleTime: 10 * 60 * 1000, // 10 minutes - row count rarely changes
-        gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
-        refetchOnWindowFocus: false,
-      },
-    );
+  const { data: rowCountData } = api.table.getRowCount.useQuery(
+    { id: id as string },
+    {
+      enabled: !!id,
+      staleTime: 10 * 60 * 1000, // 10 minutes - row count rarely changes
+      gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
+      refetchOnWindowFocus: false,
+    },
+  );
 
   // Use infinite query for paginated data
   const {
@@ -42,11 +41,10 @@ export default function TableDetail() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-    refetch: refetchTableData,
   } = api.table.getByIdPaginated.useInfiniteQuery(
     {
       id: id as string,
-      limit: 500, // Maximum page size for fastest loading
+      limit: 500, // First page: 500 rows for quick skeleton display
     },
     {
       enabled: !!id,
@@ -61,65 +59,6 @@ export default function TableDetail() {
   // Flatten all pages into a single array of rows
   const allRows = infiniteData?.pages.flatMap((page) => page.rows) ?? [];
   const table = infiniteData?.pages[0]?.table;
-
-  // Debug logging (commented out for performance)
-  // console.log("📊 Infinite query state:", { pagesCount: infiniteData?.pages.length ?? 0, totalRows: allRows.length, dbTotalRows: rowCountData?.totalRows, rowDifference: (rowCountData?.totalRows ?? 0) - allRows.length, hasNextPage, isFetchingNextPage, lastPageCursor: infiniteData?.pages[infiniteData.pages.length - 1]?.nextCursor, tableLoading });
-
-  // Manual test function for debugging
-  const testFetchNextPage = () => {
-    console.log("🧪 Manual test - calling fetchNextPage...");
-    console.log("Before:", {
-      hasNextPage,
-      isFetchingNextPage,
-      pagesCount: infiniteData?.pages.length,
-      totalRows: rowCountData?.totalRows,
-      loadedRows: allRows.length,
-    });
-    void fetchNextPage();
-  };
-
-  // Force load all remaining data
-  const forceLoadAll = () => {
-    console.log("🚀 Force loading all remaining data...");
-    console.log("Current state:", {
-      totalRows: rowCountData?.totalRows,
-      loadedRows: allRows.length,
-      hasNextPage,
-      isFetchingNextPage,
-      missingRows: (rowCountData?.totalRows ?? 0) - allRows.length,
-    });
-
-    // Keep fetching until all data is loaded
-    const fetchUntilComplete = () => {
-      const missingRows = (rowCountData?.totalRows ?? 0) - allRows.length;
-
-      if (missingRows > 0 && !isFetchingNextPage && fetchNextPage) {
-        console.log("🔄 Force fetch: Loading next page...", {
-          missingRows,
-          hasNextPage,
-          isFetchingNextPage,
-        });
-        void fetchNextPage();
-        setTimeout(fetchUntilComplete, 1000); // Check again in 1 second
-      } else if (
-        rowCountData?.totalRows &&
-        allRows.length >= rowCountData.totalRows
-      ) {
-        console.log("✅ Force load complete: All data loaded!", {
-          totalRows: rowCountData.totalRows,
-          loadedRows: allRows.length,
-        });
-      } else {
-        console.log("⏳ Force load: Waiting for current request...", {
-          missingRows,
-          isFetchingNextPage,
-        });
-        setTimeout(fetchUntilComplete, 500);
-      }
-    };
-
-    fetchUntilComplete();
-  };
 
   // Initialize column visibility when table data loads
   useEffect(() => {
@@ -139,122 +78,38 @@ export default function TableDetail() {
       { enabled: !!table?.baseId && !!table },
     );
 
-  const utils = api.useUtils();
-
   const addSampleData = api.table.addSampleData.useMutation({
     onMutate: async (variables) => {
       setIsBulkLoading(true);
-      setBulkLoadingMessage(`Adding ${variables.count} sample rows...`);
-
-      // Cancel any outgoing refetches
-      await utils.table.getByIdPaginated.cancel();
-      await utils.table.getRowCount.cancel();
-
-      // Snapshot previous values
-      const previousData = utils.table.getByIdPaginated.getInfiniteData();
-      const previousRowCount = utils.table.getRowCount.getData({
-        id: variables.tableId,
-      });
-
-      // Optimistically update row count
-      utils.table.getRowCount.setData({ id: variables.tableId }, (oldData) => {
-        if (!oldData) return oldData;
-        return {
-          ...oldData,
-          totalRows: oldData.totalRows + variables.count,
-        };
-      });
-
-      // Return context for rollback
-      return { previousData, previousRowCount };
+      setBulkLoadingMessage(`Adding ${variables.count ?? 0} sample rows...`);
     },
-    onSuccess: async (data) => {
-      console.log("✅ Sample data added successfully:", data);
+    onSuccess: async (_data) => {
       setShowAddDataModal(false);
       setIsBulkLoading(false);
 
-      // Refetch both row count and table data to get complete data
-      await Promise.all([refetchRowCount(), refetchTableData()]);
-
-      // Also invalidate cache for consistency
-      void utils.table.getByIdPaginated.invalidate();
-      void utils.table.getByBaseId.invalidate();
+      // Simple page refresh - no need for complex cache management
+      window.location.reload();
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       console.error("❌ Error adding sample data:", error);
       setIsBulkLoading(false);
-
-      // Rollback optimistic updates
-      if (context?.previousData) {
-        utils.table.getByIdPaginated.setInfiniteData(
-          { id: variables.tableId, limit: 500 },
-          context.previousData,
-        );
-      }
-      if (context?.previousRowCount) {
-        utils.table.getRowCount.setData(
-          { id: variables.tableId },
-          context.previousRowCount,
-        );
-      }
     },
   });
 
   const addTestRows = api.table.addSampleData.useMutation({
     onMutate: async (variables) => {
       setIsBulkLoading(true);
-      setBulkLoadingMessage(`Adding ${variables.count} test rows...`);
-
-      // Cancel any outgoing refetches
-      await utils.table.getByIdPaginated.cancel();
-      await utils.table.getRowCount.cancel();
-
-      // Snapshot previous values
-      const previousData = utils.table.getByIdPaginated.getInfiniteData();
-      const previousRowCount = utils.table.getRowCount.getData({
-        id: variables.tableId,
-      });
-
-      // Optimistically update row count
-      utils.table.getRowCount.setData({ id: variables.tableId }, (oldData) => {
-        if (!oldData) return oldData;
-        return {
-          ...oldData,
-          totalRows: oldData.totalRows + variables.count,
-        };
-      });
-
-      // Return context for rollback
-      return { previousData, previousRowCount };
+      setBulkLoadingMessage(`Adding ${variables.count ?? 0} test rows...`);
     },
-    onSuccess: async (data) => {
-      console.log("✅ Test rows added successfully:", data);
+    onSuccess: async (_data) => {
       setIsBulkLoading(false);
 
-      // Refetch both row count and table data to get complete data
-      await Promise.all([refetchRowCount(), refetchTableData()]);
-
-      // Also invalidate cache for consistency
-      void utils.table.getByIdPaginated.invalidate();
-      void utils.table.getByBaseId.invalidate();
+      // Simple page refresh - no need for complex cache management
+      window.location.reload();
     },
-    onError: (error, variables, context) => {
+    onError: (error) => {
       console.error("❌ Error adding test rows:", error);
       setIsBulkLoading(false);
-
-      // Rollback optimistic updates
-      if (context?.previousData) {
-        utils.table.getByIdPaginated.setInfiniteData(
-          { id: variables.tableId, limit: 500 },
-          context.previousData,
-        );
-      }
-      if (context?.previousRowCount) {
-        utils.table.getRowCount.setData(
-          { id: variables.tableId },
-          context.previousRowCount,
-        );
-      }
     },
   });
 
@@ -299,27 +154,16 @@ export default function TableDetail() {
     );
   }
 
-  // Transform table data to match DataGrid format
+  // Transform table data to match DataGrid format using flatter structure
   const gridData = allRows.map((row: any) => {
     // Create a dynamic object based on the actual table columns
     const rowData: any = { id: row.id };
 
-    // Map each column to its value from the cells
+    // Use cache data directly - much more efficient than cell lookups
     table?.columns?.forEach((column: any) => {
-      // Find the cell for this column
-      const cell = row.cells?.find((cell: any) => cell.columnId === column.id);
-
-      // Get the value based on column type
-      let value = "";
-      if (cell) {
-        if (column.type === "TEXT") {
-          value = cell.vText ?? "";
-        } else if (column.type === "NUMBER") {
-          value = cell.vNumber?.toString() ?? "";
-        }
-      }
-
-      rowData[column.name] = value;
+      // Get value directly from cache
+      const value = row.data?.[column.id];
+      rowData[column.name] = value?.toString() ?? "";
     });
 
     return rowData;
@@ -337,13 +181,7 @@ export default function TableDetail() {
     return table?.name ?? "Untitled Table";
   };
 
-  // Debug logging
-  console.log("Table data:", table);
-  console.log("Base tables:", baseTables);
-  console.log("Grid data:", gridData);
-
   const handleTableSelect = (tableId: string) => {
-    console.log("Table select clicked:", tableId, "current id:", id);
     if (tableId !== id) {
       void router.push(`/table/${tableId}`);
     }
@@ -392,8 +230,6 @@ export default function TableDetail() {
           }
         }}
         isAddingRows={addTestRows.isPending}
-        onDebugFetch={testFetchNextPage}
-        onForceLoadAll={forceLoadAll}
       >
         <div className="flex h-full flex-col">
           <TableNavigation
@@ -437,6 +273,8 @@ export default function TableDetail() {
               // Bulk loading props
               isBulkLoading={isBulkLoading}
               bulkLoadingMessage={bulkLoadingMessage}
+              // Data loading state to disable operations
+              isDataLoading={hasNextPage || isFetchingNextPage}
             />
           </TableNavigation>
         </div>

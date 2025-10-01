@@ -17,7 +17,6 @@ export function useStableRowOrder(data: DataRow[]) {
     ) {
       previousDataRef.current = data;
       rowOrderRef.current = data.map((row) => row.id);
-      console.log("🔄 Initial row order set:", rowOrderRef.current);
       return data;
     }
 
@@ -31,7 +30,6 @@ export function useStableRowOrder(data: DataRow[]) {
 
     if (hasNewData) {
       // New data detected, update our reference
-      console.log("🔄 New data detected, updating row order:", currentIds);
       previousDataRef.current = data;
       rowOrderRef.current = currentIds;
       return data;
@@ -39,12 +37,6 @@ export function useStableRowOrder(data: DataRow[]) {
 
     // Data is the same, but order might have changed
     // Preserve the previous order
-    console.log(
-      "🔄 Preserving row order. Previous:",
-      rowOrderRef.current,
-      "Current:",
-      currentIds,
-    );
     const orderedData: DataRow[] = [];
     const dataMap = new Map(data.map((row) => [row.id, row]));
 

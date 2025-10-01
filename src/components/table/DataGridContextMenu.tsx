@@ -7,6 +7,7 @@ interface DataGridContextMenuProps {
   onDeleteRow: (rowId: string) => void;
   onClose: () => void;
   isDeletingRow?: boolean;
+  isDataLoading?: boolean;
 }
 
 export function DataGridContextMenu({
@@ -16,6 +17,7 @@ export function DataGridContextMenu({
   onDeleteRow,
   onClose,
   isDeletingRow = false,
+  isDataLoading = false,
 }: DataGridContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -56,8 +58,13 @@ export function DataGridContextMenu({
             onDeleteRow(rowId);
             onClose();
           }}
-          disabled={isDeletingRow}
+          disabled={isDeletingRow || isDataLoading}
           className="flex w-full items-center px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          title={
+            isDataLoading
+              ? "Cannot delete row while data is loading"
+              : undefined
+          }
         >
           {isDeletingRow ? (
             <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-red-300 border-t-red-600"></div>

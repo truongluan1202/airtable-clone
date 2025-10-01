@@ -27,10 +27,6 @@ export function SortDropdown({
 
   // Sync autoSort state with the actual sort state
   useEffect(() => {
-    console.log("🔄 SortDropdown useEffect - sort changed:", {
-      sortLength: sort.length,
-      sort,
-    });
     setAutoSort(sort.length > 0);
     // Only update sort rules if they're empty (initial load) or if sort is being applied from outside
     if (sort.length > 0) {
@@ -56,7 +52,6 @@ export function SortDropdown({
 
       // If auto sort is enabled, immediately apply the new rules
       if (autoSort) {
-        console.log("✅ Auto sort enabled, applying new rules:", newSortRules);
         onSortChange(newSortRules);
       }
     }
@@ -68,10 +63,6 @@ export function SortDropdown({
 
     // If auto sort is enabled, immediately apply the updated rules
     if (autoSort) {
-      console.log(
-        "✅ Auto sort enabled, applying updated rules after removal:",
-        newSortRules,
-      );
       onSortChange(newSortRules);
     }
   };
@@ -84,10 +75,6 @@ export function SortDropdown({
 
     // If auto sort is enabled, immediately apply the updated rules
     if (autoSort) {
-      console.log(
-        "✅ Auto sort enabled, applying updated rules after column change:",
-        newSortRules,
-      );
       onSortChange(newSortRules);
     }
   };
@@ -100,26 +87,14 @@ export function SortDropdown({
 
     // If auto sort is enabled, immediately apply the updated rules
     if (autoSort) {
-      console.log(
-        "✅ Auto sort enabled, applying updated rules after direction change:",
-        newSortRules,
-      );
       onSortChange(newSortRules);
     }
   };
 
   const handleApply = () => {
-    console.log("🔄 Apply button clicked:", {
-      autoSort,
-      sortRulesLength: sortRules.length,
-      sortRules,
-    });
-
     if (sortRules.length > 0) {
-      console.log("✅ Applying sort rules:", sortRules);
       onSortChange(sortRules);
     } else {
-      console.log("❌ Clearing sort");
       onSortChange([]);
     }
     onClose();
@@ -127,22 +102,14 @@ export function SortDropdown({
 
   const handleAutoSortToggle = () => {
     const newAutoSort = !autoSort;
-    console.log("🔄 Auto sort toggle:", {
-      current: autoSort,
-      new: newAutoSort,
-      sortRules: sortRules.length,
-      currentSort: sort.length,
-    });
 
     setAutoSort(newAutoSort);
 
     // If turning off auto sort, just stop applying sort (don't clear the rules)
     if (!newAutoSort) {
-      console.log("❌ Disabling auto sort, returning to original order");
       onSortChange([]);
     } else if (sortRules.length > 0) {
       // If turning on auto sort and we have rules, apply them
-      console.log("✅ Enabling auto sort, applying rules:", sortRules);
       onSortChange(sortRules);
     }
   };

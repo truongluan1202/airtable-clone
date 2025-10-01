@@ -30,10 +30,11 @@ export default function WorkspacePage() {
 
   const [showWorkspaceDropdown, setShowWorkspaceDropdown] = useState(false);
 
-  const { data: workspace } = api.workspace.getById.useQuery(
-    { id: id as string },
-    { enabled: !!id },
-  );
+  const {
+    data: workspace,
+    isLoading: workspaceLoading,
+    isError: workspaceError,
+  } = api.workspace.getById.useQuery({ id: id as string }, { enabled: !!id });
 
   const { data: bases, refetch: refetchBases } =
     api.base.getByWorkspace.useQuery(
@@ -145,7 +146,20 @@ export default function WorkspacePage() {
     return null; // Will redirect to signin
   }
 
-  if (!workspace) {
+  if (workspaceLoading) {
+    return (
+      <AirtableLayout>
+        <div className="flex h-full items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
+            <p className="mt-4 text-gray-600">Loading workspace...</p>
+          </div>
+        </div>
+      </AirtableLayout>
+    );
+  }
+
+  if (workspaceError) {
     return (
       <AirtableLayout>
         <div className="flex h-full items-center justify-center">

@@ -27,13 +27,14 @@ interface TableBodyProps {
   onRowHover?: (rowId: string | null) => void;
   // Loading states
   isAddingRow?: boolean;
+  isDataLoading?: boolean;
 }
 
 export function TableBody({
   rows,
   columns,
   selectedCell,
-  searchQuery,
+  searchQuery: _searchQuery,
   isColumnSorted,
   isColumnFiltered,
   isCellHighlighted,
@@ -43,6 +44,7 @@ export function TableBody({
   visibleColumns,
   onRowHover,
   isAddingRow = false,
+  isDataLoading = false,
 }: TableBodyProps) {
   return (
     <tbody>
@@ -77,42 +79,11 @@ export function TableBody({
               columnName ? (row.original[columnName] ?? "") : "",
             );
 
-            // Debug: Check what's in the row data
-            if (
-              searchQuery.trim() &&
-              cell.column.id !== "addColumn" &&
-              cell.column.id !== "select"
-            ) {
-              console.log("🔍 Row data debug:", {
-                rowId: row.original.id,
-                columnId: cell.column.id,
-                columnName,
-                cellValue,
-                rawRowData: row.original,
-                directAccess: columnName
-                  ? row.original[columnName]
-                  : "no column name",
-              });
-            }
-
             // Skip search highlighting for non-data columns
             const isSearchHighlighted =
               cell.column.id !== "addColumn" &&
               cell.column.id !== "select" &&
               isCellHighlighted(row.original.id, cell.column.id, cellValue);
-
-            // Debug logging
-            if (searchQuery.trim()) {
-              console.log("🔍 Highlight check:", {
-                rowId: row.original.id,
-                columnId: cell.column.id,
-                cellValue,
-                searchQuery,
-                isSearchHighlighted,
-                isDataColumn:
-                  cell.column.id !== "addColumn" && cell.column.id !== "select",
-              });
-            }
 
             return (
               <td
@@ -140,8 +111,11 @@ export function TableBody({
         <td colSpan={visibleColumns.length} className="px-3 py-2">
           <button
             onClick={handleAddRow}
-            disabled={isAddingRow}
+            disabled={isAddingRow || isDataLoading}
             className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            title={
+              isDataLoading ? "Cannot add row while data is loading" : undefined
+            }
           >
             {isAddingRow ? (
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"></div>

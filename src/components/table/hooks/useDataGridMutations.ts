@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { api } from "~/utils/api";
 import type { Column } from "../types";
 
-export function useDataGridMutations(tableId?: string) {
+export function useDataGridMutations(tableId?: string, isDataLoading = false) {
   const utils = api.useUtils();
 
   // Track loading states that persist until data is refetched
@@ -16,7 +16,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const updateCellMutation = api.table.updateCell.useMutation({
     onSuccess: (data) => {
-      console.log("✅ Cell updated successfully:", data);
       void utils.table.getById.invalidate();
       void utils.table.getByIdPaginated.invalidate();
     },
@@ -27,7 +26,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const addColumnMutation = api.table.addColumn.useMutation({
     onMutate: async (variables) => {
-      console.log("🔥 Setting add column loading to true");
       setIsAddingColumnLoading(true);
 
       // Cancel any outgoing refetches
@@ -56,19 +54,13 @@ export function useDataGridMutations(tableId?: string) {
               ...page.table,
               columns: [...page.table.columns, optimisticColumn],
             },
-            // Add empty cells for the new column to all existing rows
+            // Add empty data for the new column to all existing rows
             rows: page.rows.map((row: any) => ({
               ...row,
-              cells: [
-                ...row.cells,
-                {
-                  id: `temp-cell-${Date.now()}-${row.id}`,
-                  rowId: row.id,
-                  columnId: optimisticColumn.id,
-                  vText: null,
-                  vNumber: null,
-                },
-              ],
+              data: {
+                ...row.data,
+                [optimisticColumn.id]: null, // Add empty value for new column
+              },
             })),
           }));
 
@@ -83,7 +75,44 @@ export function useDataGridMutations(tableId?: string) {
       return { previousData };
     },
     onSuccess: (data) => {
-      console.log("✅ Column added successfully:", data);
+      // Update the optimistic data with the real column ID
+      utils.table.getByIdPaginated.setInfiniteData(
+        { id: data.tableId, limit: 500 },
+        (oldData) => {
+          if (!oldData) return oldData;
+
+          const newPages = oldData.pages.map((page) => ({
+            ...page,
+            table: {
+              ...page.table,
+              columns: page.table.columns.map((col: any) =>
+                col.id.startsWith("temp-col-") ? data : col,
+              ),
+            },
+            // Update row data to use real column ID
+            rows: page.rows.map((row: any) => {
+              const newData = { ...row.data };
+              // Remove temp column data and add real column data
+              Object.keys(newData).forEach((key) => {
+                if (key.startsWith("temp-col-")) {
+                  delete newData[key];
+                }
+              });
+              newData[data.id] = null;
+
+              return {
+                ...row,
+                data: newData,
+              };
+            }),
+          }));
+
+          return {
+            ...oldData,
+            pages: newPages,
+          };
+        },
+      );
 
       // Invalidate to ensure consistency and get real data
       void utils.table.getById.invalidate();
@@ -114,7 +143,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const addRowMutation = api.table.addRow.useMutation({
     onMutate: async (variables) => {
-      console.log("🔥 Setting add row loading to true");
       setIsAddingRowLoading(true);
 
       // Cancel any outgoing refetches so they don't overwrite our optimistic update
@@ -136,19 +164,69 @@ export function useDataGridMutations(tableId?: string) {
         };
       });
 
-      // For single row addition, we'll just update the row count optimistically
-      // and let the natural data flow handle the row positioning when it refetches
-      // This avoids complex pagination logic and ensures consistency with database ordering
+      // Optimistically add the new row to the data
+      const optimisticRowId = `temp-row-${Date.now()}`;
+      const optimisticRow = {
+        id: optimisticRowId,
+        createdAt: new Date(),
+        data: {} as Record<string, string | number | null>,
+      };
+
+      // Add the optimistic row to the last page of data
+      utils.table.getByIdPaginated.setInfiniteData(
+        { id: variables.tableId, limit: 500 },
+        (oldData) => {
+          if (!oldData) return oldData;
+
+          const newPages = [...oldData.pages];
+          if (newPages.length > 0) {
+            const lastPage = newPages[newPages.length - 1];
+            if (lastPage) {
+              newPages[newPages.length - 1] = {
+                ...lastPage,
+                rows: [...lastPage.rows, optimisticRow],
+              };
+            }
+          }
+
+          return {
+            ...oldData,
+            pages: newPages,
+          };
+        },
+      );
 
       // Return context with the previous data for rollback
       return { previousData, previousRowCount };
     },
-    onSuccess: (data) => {
-      console.log("✅ Row added successfully:", data);
+    onSuccess: (data, variables) => {
+      // Replace the optimistic row with the real row data
+      utils.table.getByIdPaginated.setInfiniteData(
+        { id: variables.tableId, limit: 500 },
+        (oldData) => {
+          if (!oldData) return oldData;
 
-      // Invalidate to refetch the data with the new row in the correct position
-      void utils.table.getByIdPaginated.invalidate();
-      void utils.table.getRowCount.invalidate();
+          const newPages = oldData.pages.map((page) => ({
+            ...page,
+            rows: page.rows.map((row: any) => {
+              // Replace optimistic row with real data
+              if (row.id.startsWith("temp-row-")) {
+                return {
+                  id: data.id,
+                  createdAt: data.createdAt,
+                  data: {} as Record<string, string | number | null>, // Empty data for new row
+                };
+              }
+              return row;
+            }),
+          }));
+
+          return {
+            ...oldData,
+            pages: newPages,
+          };
+        },
+      );
 
       // Keep loading state visible for a bit longer so user can see the new row
       setTimeout(() => {
@@ -177,7 +255,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const deleteRowMutation = api.table.deleteRow.useMutation({
     onMutate: async (variables) => {
-      console.log("🔥 Delete row mutation started with:", variables);
       setIsDeletingRowLoading(true);
 
       // Cancel any outgoing refetches
@@ -221,8 +298,6 @@ export function useDataGridMutations(tableId?: string) {
       return { previousData, previousRowCount };
     },
     onSuccess: (data) => {
-      console.log("✅ Row deleted successfully:", data);
-
       // Invalidate to ensure consistency
       void utils.table.getById.invalidate();
       void utils.table.getByIdPaginated.invalidate();
@@ -256,7 +331,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const deleteColumnMutation = api.table.deleteColumn.useMutation({
     onMutate: async (variables) => {
-      console.log("🔥 Setting delete column loading to true");
       setIsDeletingColumnLoading(true);
 
       // Cancel any outgoing refetches
@@ -279,13 +353,15 @@ export function useDataGridMutations(tableId?: string) {
                 (col: any) => col.id !== variables.columnId,
               ),
             },
-            // Remove cells for the deleted column from all rows
-            rows: page.rows.map((row: any) => ({
-              ...row,
-              cells: row.cells.filter(
-                (cell: any) => cell.columnId !== variables.columnId,
-              ),
-            })),
+            // Remove data for the deleted column from all rows
+            rows: page.rows.map((row: any) => {
+              const newData = { ...row.data };
+              delete newData[variables.columnId];
+              return {
+                ...row,
+                data: newData,
+              };
+            }),
           }));
 
           return {
@@ -299,8 +375,6 @@ export function useDataGridMutations(tableId?: string) {
       return { previousData };
     },
     onSuccess: (data) => {
-      console.log("✅ Column deleted successfully:", data);
-
       // Invalidate to ensure consistency
       void utils.table.getById.invalidate();
       void utils.table.getByIdPaginated.invalidate();
@@ -330,7 +404,6 @@ export function useDataGridMutations(tableId?: string) {
         console.error("Table ID is required to add a column");
         return;
       }
-      console.log("🔥 handleAddColumn called with:", { name, type, tableId });
       addColumnMutation.mutate({
         tableId,
         name,
@@ -345,7 +418,6 @@ export function useDataGridMutations(tableId?: string) {
       console.error("Table ID is required to add a row");
       return;
     }
-    console.log("🔥 handleAddRow called with tableId:", tableId);
     addRowMutation.mutate({
       tableId,
     });
@@ -353,7 +425,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const handleDeleteRow = useCallback(
     (rowId: string) => {
-      console.log("🔥 Delete row called for:", rowId);
       deleteRowMutation.mutate({
         rowId,
       });
@@ -363,7 +434,6 @@ export function useDataGridMutations(tableId?: string) {
 
   const handleDeleteColumn = useCallback(
     (columnId: string) => {
-      console.log("🔥 Delete column called for:", columnId);
       deleteColumnMutation.mutate({
         columnId,
       });
@@ -381,14 +451,6 @@ export function useDataGridMutations(tableId?: string) {
         React.SetStateAction<Record<string, string>>
       >,
     ) => {
-      console.log("🔥 handleCellUpdate called with:", {
-        rowId,
-        columnId,
-        value,
-        valueType: typeof value,
-        valueConstructor: value?.constructor?.name,
-      });
-
       const cellKey = `${rowId}-${columnId}`;
 
       // Update local state optimistically
@@ -400,7 +462,6 @@ export function useDataGridMutations(tableId?: string) {
       // Find the column to determine its type
       const column = columns.find((col) => col.id === columnId);
       const columnType = column?.type;
-      console.log("🔥 Found column:", { column, columnType });
 
       // Convert value based on column type
       let processedValue: string | number = String(value).trim();
@@ -427,14 +488,6 @@ export function useDataGridMutations(tableId?: string) {
     [updateCellMutation],
   );
 
-  // Debug loading states
-  console.log("🔥 useDataGridMutations loading states:", {
-    isAddingColumnLoading,
-    isAddingRowLoading,
-    isDeletingRowLoading,
-    isDeletingColumnLoading,
-  });
-
   return {
     handleAddColumn,
     handleAddRow,
@@ -452,5 +505,7 @@ export function useDataGridMutations(tableId?: string) {
     isDeletingRow: isDeletingRowLoading,
     isDeletingColumn: isDeletingColumnLoading,
     isUpdatingCell: false, // Remove cell update loading since we do optimistic updates
+    // Data loading state to disable operations
+    isDataLoading,
   };
 }

@@ -1,13 +1,12 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, memo } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import type { EditableCellProps } from "./types";
 
-export function EditableCell({
+export const EditableCell = memo(function EditableCell({
   value,
   onUpdate,
   isEditing,
-  isSelected,
   onStartEdit,
   onStopEdit,
   onSelect,
@@ -28,13 +27,21 @@ export function EditableCell({
     setIsMounted(true);
   }, []);
 
+  // Sync editValue with value when not editing
+  useEffect(() => {
+    if (!isEditing) {
+      setEditValue(value);
+    }
+  }, [value, isEditing]);
+
   // Sync modal edit value when modal opens
   useEffect(() => {
     if (showFullContent) {
       setModalEditValue(value);
       setIsEditingInModal(false);
     }
-  }, [showFullContent, value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFullContent]); // Remove value dependency to prevent infinite loops
 
   // Close modal on escape key
   useEffect(() => {
@@ -120,10 +127,6 @@ export function EditableCell({
         onSelect();
         // Show full content if there's any content
         if (value && value.length > 0) {
-          console.log("🔍 Opening modal for content:", {
-            value,
-            length: value.length,
-          });
           setShowFullContent(true);
         }
       }
@@ -141,16 +144,13 @@ export function EditableCell({
   const handleRightClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (value && value.length > 0) {
-      console.log("🔍 Right-click: Opening modal for content:", value);
       setShowFullContent(true);
     }
   };
 
   const handleIconClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent the cell click from firing
-    console.log("🎯 Icon clicked!", { value, length: value?.length });
     if (value && value.length > 0) {
-      console.log("🔍 Icon click: Opening modal for content:", value);
       setShowFullContent(true);
     }
   };
@@ -160,7 +160,6 @@ export function EditableCell({
   };
 
   const handleModalSave = () => {
-    console.log("💾 Modal save triggered");
     onUpdate(modalEditValue);
     setIsEditingInModal(false);
     setShowFullContent(false);
@@ -172,16 +171,13 @@ export function EditableCell({
   };
 
   const handleModalKeyDown = (e: React.KeyboardEvent) => {
-    console.log("⌨️ Modal keydown:", e.key);
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      console.log("🚪 Modal closed by Escape key");
       handleModalCancel();
     } else if (e.key === "Enter") {
       // Only stop propagation to prevent parent handlers, but allow textarea default behavior
       e.stopPropagation();
-      console.log("↩️ Enter key handled - creating new line");
       // Don't prevent default - let textarea handle Enter naturally
     }
   };
@@ -238,7 +234,6 @@ export function EditableCell({
           <div
             className="cell-modal-overlay bg-opacity-10 flex items-center justify-center bg-black"
             onClick={() => {
-              console.log("🚪 Modal closed by backdrop click");
               setShowFullContent(false);
             }}
             onKeyDown={(e) => {
@@ -340,4 +335,4 @@ export function EditableCell({
         )}
     </>
   );
-}
+});

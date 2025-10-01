@@ -55,7 +55,6 @@ export function useDataGridState() {
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, rowId: string) => {
       e.preventDefault();
-      console.log("🔥 Context menu triggered for row:", rowId);
       setContextMenu({
         visible: true,
         x: e.clientX,

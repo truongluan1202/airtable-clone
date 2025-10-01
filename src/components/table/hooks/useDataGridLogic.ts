@@ -167,29 +167,7 @@ export function useDataGridLogic(
       const cellValueStr = String(cellValue).toLowerCase();
       const matches = cellValueStr.includes(query);
 
-      // Debug logging for data columns only when searching
-      if (columnId !== "addColumn" && columnId !== "select") {
-        console.log("🔍 Match check:", {
-          rowId,
-          columnId,
-          cellValue,
-          cellValueStr,
-          query,
-          matches,
-          searchQuery,
-        });
-      }
-
-      // Debug logging
-      if (matches) {
-        console.log("🔍 Search match found:", {
-          rowId,
-          columnId,
-          cellValue,
-          query,
-          matches,
-        });
-      }
+      // Removed excessive logging to improve performance during search
 
       return matches;
     },

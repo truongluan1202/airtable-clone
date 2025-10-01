@@ -5,8 +5,6 @@ interface ToolsDropdownProps {
   onClose: () => void;
   onAddTestRows: (count: number) => void;
   isAddingRows: boolean;
-  onDebugFetch?: () => void;
-  onForceLoadAll?: () => void;
 }
 
 export function ToolsDropdown({
@@ -14,8 +12,6 @@ export function ToolsDropdown({
   onClose,
   onAddTestRows,
   isAddingRows,
-  onDebugFetch,
-  onForceLoadAll,
 }: ToolsDropdownProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -53,40 +49,6 @@ export function ToolsDropdown({
 
       {/* Content */}
       <div className="py-2">
-        {/* Debug Section */}
-        {onDebugFetch && (
-          <div className="px-4 py-2">
-            <h4 className="mb-2 text-xs tracking-wide text-gray-500 uppercase">
-              Debug
-            </h4>
-            <div className="space-y-1">
-              <button
-                onClick={() => {
-                  onDebugFetch();
-                  onClose();
-                }}
-                className="flex w-full items-center space-x-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <div className="h-2 w-2 rounded-full bg-red-500"></div>
-                <span>Test Fetch Next Page</span>
-              </button>
-
-              {onForceLoadAll && (
-                <button
-                  onClick={() => {
-                    onForceLoadAll();
-                    onClose();
-                  }}
-                  className="flex w-full items-center space-x-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                >
-                  <div className="h-2 w-2 rounded-full bg-orange-500"></div>
-                  <span>Force Load All Data</span>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Test Data Section */}
         <div className="px-4 py-2">
           <h4 className="mb-2 text-xs tracking-wide text-gray-500 uppercase">
@@ -127,6 +89,18 @@ export function ToolsDropdown({
             >
               <div className="h-2 w-2 rounded-full bg-purple-500"></div>
               <span>{isAddingRows ? "Adding..." : "Add 10k Test Rows"}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                onAddTestRows(100000);
+                onClose();
+              }}
+              disabled={isAddingRows}
+              className="flex w-full items-center space-x-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <div className="h-2 w-2 rounded-full bg-red-600"></div>
+              <span>{isAddingRows ? "Adding..." : "Add 100k Test Rows"}</span>
             </button>
           </div>
         </div>

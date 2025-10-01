@@ -28,7 +28,6 @@ export interface EditableCellProps {
   value: string;
   onUpdate: (value: string) => void;
   isEditing: boolean;
-  isSelected: boolean;
   onStartEdit: () => void;
   onStopEdit: () => void;
   onSelect: () => void;
