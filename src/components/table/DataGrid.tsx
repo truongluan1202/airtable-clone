@@ -44,7 +44,7 @@ export function DataGrid({
   totalRows?: number;
   isDataLoading?: boolean;
 }) {
-  const tableRef = useRef<HTMLTableElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
   // Maintain stable row order to prevent reordering on cell clicks
@@ -59,6 +59,7 @@ export function DataGrid({
     openColumnDropdown,
     contextMenu,
     setCellValues,
+    setSelectedCell,
     setShowAddColumnDropdown,
     setOpenColumnDropdown,
     setContextMenu,
@@ -93,14 +94,24 @@ export function DataGrid({
     isColumnFiltered,
   } = useDataGridLogic(stableData, columns, searchQuery, sort, filters);
 
-  // Handle click outside to close dropdowns and context menu
+  // Handle click outside to close dropdowns, context menu, and clear cell selection
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+
+      // Handle context menu
       if (contextMenu) {
         // Check if the click is on the context menu itself
-        const target = event.target as Element;
         if (!target.closest(".context-menu")) {
           setContextMenu(null);
+        }
+      }
+
+      // Handle cell selection - clear selected cell when clicking outside the table
+      if (selectedCell && tableRef.current) {
+        // Check if the click is inside the table
+        if (!tableRef.current.contains(target)) {
+          setSelectedCell(null);
         }
       }
     };
@@ -109,7 +120,7 @@ export function DataGrid({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [contextMenu, setContextMenu]);
+  }, [contextMenu, setContextMenu, selectedCell, setSelectedCell]);
 
   // Get visible columns based on column visibility settings
   const visibleColumns = useMemo(() => {
@@ -174,7 +185,7 @@ export function DataGrid({
 
   if (enableVirtualization) {
     return (
-      <div className="relative flex h-full flex-col">
+      <div ref={tableRef} className="relative flex h-full flex-col">
         {/* Header - always visible */}
         <div className="flex-shrink-0 border-b border-gray-200">
           <table style={{ tableLayout: "fixed", width: "auto" }}>
@@ -188,7 +199,7 @@ export function DataGrid({
 
         {/* Virtualized Body - takes remaining space */}
         <div
-          className="relative flex-1 overflow-hidden"
+          className="relative flex-1 overflow-hidden focus:outline-none"
           onKeyDown={handleKeyDown}
           tabIndex={0}
         >
@@ -271,88 +282,4 @@ export function DataGrid({
       </div>
     );
   }
-
-  return (
-    <div className="relative h-full overflow-auto">
-      <table
-        ref={tableRef}
-        className="w-full"
-        style={{ tableLayout: "fixed" }}
-        onKeyDown={handleKeyDown}
-        tabIndex={0}
-      >
-        <TableHeader
-          headerGroups={table.getHeaderGroups()}
-          isColumnSorted={isColumnSorted}
-          isColumnFiltered={isColumnFiltered}
-        />
-        <TableBody
-          rows={table.getRowModel().rows}
-          columns={columns}
-          selectedCell={selectedCell}
-          searchQuery={searchQuery}
-          isColumnSorted={isColumnSorted}
-          isColumnFiltered={isColumnFiltered}
-          isCellHighlighted={isCellHighlighted}
-          getCellValue={getCellValue}
-          handleContextMenu={handleContextMenu}
-          handleAddRow={() => handleAddRow()}
-          visibleColumns={visibleColumns}
-          onRowHover={setHoveredRowId}
-          isAddingRow={isAddingRow}
-        />
-      </table>
-
-      {/* Bulk Loading Overlay */}
-      {isBulkLoading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-lg">
-            <div className="flex items-center space-x-3">
-              <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-blue-600"></div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">
-                  {bulkLoadingMessage}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Please wait while we add the rows...
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Row Counter Footer */}
-      <div className="border-t border-gray-200 bg-gray-50 px-4 py-2">
-        <div className="flex items-center justify-between text-xs text-gray-600">
-          <span>
-            {filteredData.length === data.length
-              ? `${data.length} row${data.length !== 1 ? "s" : ""}`
-              : `${filteredData.length} of ${data.length} row${data.length !== 1 ? "s" : ""} shown`}
-            {hasNextPage && (
-              <span className="text-gray-400"> (+ more available)</span>
-            )}
-          </span>
-          {hasNextPage && (
-            <span className="text-gray-500">
-              {isFetchingNextPage ? "Loading more..." : "More data available"}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Context Menu */}
-      {contextMenu && (
-        <DataGridContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          rowId={contextMenu.rowId}
-          onDeleteRow={handleDeleteRow}
-          onClose={() => setContextMenu(null)}
-          isDeletingRow={isDeletingRow}
-          isDataLoading={isDataLoading}
-        />
-      )}
-    </div>
-  );
 }

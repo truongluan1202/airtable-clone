@@ -60,7 +60,7 @@ export function AddColumnDropdown({
   return (
     <div
       ref={dropdownRef}
-      className="absolute top-full right-0 z-50 w-100 rounded-md border border-gray-200 bg-white shadow-lg"
+      className="absolute top-full right-0 z-50 w-80 rounded-md border border-gray-200 bg-white shadow-lg"
       onKeyDown={handleKeyDown}
     >
       <form onSubmit={handleSubmit} className="p-3 font-light">

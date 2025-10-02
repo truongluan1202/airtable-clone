@@ -11,6 +11,7 @@ export default function WorkspacePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const { id } = router.query;
+  const utils = api.useUtils();
   const [showCreateBase, setShowCreateBase] = useState(false);
   const [baseName, setBaseName] = useState("");
   const [baseDescription, setBaseDescription] = useState("");
@@ -36,11 +37,14 @@ export default function WorkspacePage() {
     isError: workspaceError,
   } = api.workspace.getById.useQuery({ id: id as string }, { enabled: !!id });
 
-  const { data: bases, refetch: refetchBases } =
-    api.base.getByWorkspace.useQuery(
-      { workspaceId: id as string },
-      { enabled: !!id },
-    );
+  const {
+    data: bases,
+    refetch: refetchBases,
+    isLoading: basesLoading,
+  } = api.base.getByWorkspace.useQuery(
+    { workspaceId: id as string },
+    { enabled: !!id },
+  );
 
   const createBase = api.base.create.useMutation({
     onSuccess: (newBase) => {
@@ -61,10 +65,20 @@ export default function WorkspacePage() {
   });
 
   const deleteWorkspace = api.workspace.delete.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       setShowWorkspaceDropdown(false);
-      // Redirect to home after deleting workspace
-      void router.push("/");
+
+      // Get fresh workspace data to find another workspace to navigate to
+      await utils.workspace.getAll.invalidate();
+      const freshWorkspaces = await utils.workspace.getAll.fetch();
+
+      // If there are other workspaces, navigate to the first one
+      if (freshWorkspaces && freshWorkspaces.length > 0) {
+        void router.push(`/workspace/${freshWorkspaces[0]?.id}`);
+      } else {
+        // No other workspaces, go to home
+        void router.push("/");
+      }
     },
   });
 
@@ -248,7 +262,12 @@ export default function WorkspacePage() {
             </div>
 
             {/* Base Cards Grid */}
-            {bases && bases.length > 0 ? (
+            {basesLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
+                <p className="mt-4 text-gray-600">Loading bases...</p>
+              </div>
+            ) : bases && bases.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2">
                 {bases.map((base: any) => (
                   <div
@@ -258,8 +277,9 @@ export default function WorkspacePage() {
                     onContextMenu={(e) => handleContextMenu(e, base)}
                   >
                     <div className="flex items-center space-x-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded bg-green-600 text-white">
+                      <div className="flex h-10 w-10 items-center justify-center rounded bg-purple-600 text-white">
                         {base.name.charAt(0).toUpperCase()}
+                        {base.name.charAt(1).toLowerCase()}
                       </div>
                       <div className="flex-1">
                         <h3 className="text-sm font-semibold text-gray-900">
@@ -304,7 +324,7 @@ export default function WorkspacePage() {
               <div className="flex flex-row space-x-2 p-2 pl-0">
                 <button
                   onClick={() => setShowCreateBase(true)}
-                  className="rounded-md bg-blue-600 px-3 py-2 text-white transition-colors hover:bg-blue-700"
+                  className="rounded-md bg-[#166ee1] px-3 py-2 text-white transition-colors hover:bg-blue-700"
                 >
                   Create
                 </button>
@@ -367,7 +387,7 @@ export default function WorkspacePage() {
 
         {/* Create Base Modal */}
         {showCreateBase && (
-          <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
+          <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
             <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
               <h3 className="mb-4 text-lg text-gray-900">Create New Base</h3>
               <div className="space-y-4">

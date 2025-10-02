@@ -21,14 +21,38 @@ function SelectCell({
   isRowHovered: boolean;
 }) {
   return (
-    <div className="flex items-center justify-center">
+    <div className="w- flex items-center justify-center">
       {isRowHovered ? (
-        <button
-          onClick={() => onToggle(rowId)}
-          className="flex h-4 w-4 items-center justify-center rounded border border-gray-300 bg-white shadow-sm hover:border-gray-400 hover:bg-gray-50"
-        >
-          {isSelected && <div className="h-2 w-2 rounded-sm bg-blue-600"></div>}
-        </button>
+        <div className="flex items-center justify-center space-x-2">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            className="row-grabby cursor-grab"
+            viewBox="0 0 256 256"
+          >
+            <path d="M104 60a12 12 0 1 1-12-12 12 12 0 0 1 12 12m60 12a12 12 0 1 0-12-12 12 12 0 0 0 12 12m-72 44a12 12 0 1 0 12 12 12 12 0 0 0-12-12m72 0a12 12 0 1 0 12 12 12 12 0 0 0-12-12m-72 68a12 12 0 1 0 12 12 12 12 0 0 0-12-12m72 0a12 12 0 1 0 12 12 12 12 0 0 0-12-12" />
+          </svg>
+          <button
+            onClick={() => onToggle(rowId)}
+            className="flex h-4 w-4 items-center justify-center rounded border border-gray-300 bg-white shadow-sm hover:border-gray-400 hover:bg-gray-50"
+          >
+            {isSelected && (
+              <div className="h-2 w-2 rounded-sm bg-blue-600"></div>
+            )}
+          </button>
+
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            viewBox="0 0 256 256"
+          >
+            <path d="M216 48v48a8 8 0 0 1-16 0V67.31l-50.34 50.35a8 8 0 0 1-11.32-11.32L188.69 56H160a8 8 0 0 1 0-16h48a8 8 0 0 1 8 8m-109.66 90.34L56 188.69V160a8 8 0 0 0-16 0v48a8 8 0 0 0 8 8h48a8 8 0 0 0 0-16H67.31l50.35-50.34a8 8 0 0 0-11.32-11.32" />
+          </svg>
+        </div>
       ) : (
         <span className="text-xs text-gray-500">{rowIndex + 1}</span>
       )}
@@ -108,7 +132,7 @@ export function useTableColumns({
             isRowHovered={isRowHovered?.(row.original.id) ?? false}
           />
         ),
-        size: 60,
+        size: 85,
       }),
     ];
 

@@ -52,25 +52,44 @@ export function TableViewLayout({
       setShowCreateTable(false);
       setTableNameInput("");
       setTableDescription("");
-      onTableCreated?.();
-      // Redirect to the new table
+
+      // Redirect to the new table first
       void router.push(`/table/${newTable.id}`);
+
+      // Then refresh the tables list
+      onTableCreated?.();
     },
   });
 
   const deleteTable = api.table.delete.useMutation({
-    onSuccess: () => {
+    onMutate: async () => {
+      // Immediate feedback - close context menu and show loading state
       setContextMenu({
         isOpen: false,
         position: { x: 0, y: 0 },
         tableId: "",
         tableName: "",
       });
-      onTableCreated?.(); // Refresh the tables list
-      // If we deleted the current table, redirect to the base
-      if (contextMenu.tableId === router.query.id) {
-        void router.push(`/base/${baseId}`);
+
+      // If we're deleting the current table, immediately navigate to another table or base
+      if (contextMenu.tableId === router.query.id && baseId) {
+        // Find remaining tables (excluding the one being deleted)
+        const remainingTables = tables.filter(
+          (table) => table.id !== contextMenu.tableId,
+        );
+
+        if (remainingTables.length > 0) {
+          // Immediately navigate to the first remaining table
+          void router.push(`/table/${remainingTables[0]?.id}`);
+        } else {
+          // No tables left, go to base page
+          void router.push(`/base/${baseId}`);
+        }
       }
+    },
+    onSuccess: async () => {
+      // Refresh the tables list after successful deletion
+      onTableCreated?.();
     },
     onError: (error) => {
       console.error("Error deleting table:", error);
@@ -320,7 +339,7 @@ export function TableViewLayout({
                               "after:border-r after:border-l after:border-gray-300",
                               "after:pointer-events-none",
                             ].join(" ")
-                          : "relative flex items-center text-gray-600 hover:bg-blue-100 hover:text-gray-800",
+                          : "relative flex items-center text-gray-600 hover:bg-purple-100 hover:text-gray-800",
                       ].join(" ")}
                     >
                       {table.name}
@@ -341,7 +360,7 @@ export function TableViewLayout({
                 />
                 <button
                   onClick={() => setShowCreateTable(true)}
-                  className="ml-2 rounded px-2 py-1 text-xs text-gray-600 hover:bg-blue-100 hover:text-gray-900"
+                  className="ml-2 rounded px-2 py-1 text-xs text-gray-600 hover:bg-purple-100 hover:text-gray-900"
                 >
                   + Add or import
                 </button>
@@ -352,7 +371,7 @@ export function TableViewLayout({
             <div className="relative flex items-center">
               <button
                 onClick={() => setShowToolsDropdown(!showToolsDropdown)}
-                className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                className="rounded px-2 py-1 text-xs text-gray-500 hover:bg-purple-100 hover:text-gray-700"
               >
                 Tools
               </button>
@@ -376,7 +395,7 @@ export function TableViewLayout({
 
       {/* Create Table Modal */}
       {showCreateTable && (
-        <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
+        <div className="cell-modal-overlay bg-opacity-90 fixed inset-0 z-50 flex items-center justify-center bg-black">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
             <h3 className="mb-4 text-lg text-gray-900">Create New Table</h3>
             <p className="mb-4 text-sm text-gray-600">
@@ -436,6 +455,7 @@ export function TableViewLayout({
         onDelete={handleDeleteTable}
         tableName={contextMenu.tableName}
         isDeleteDisabled={isDeleteDisabled}
+        isDeleting={deleteTable.isPending}
       />
     </div>
   );

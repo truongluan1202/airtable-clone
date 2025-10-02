@@ -200,21 +200,37 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
             {/* Workspace List */}
             {!sidebarCollapsed && workspacesExpanded && workspaces && (
               <div className="ml-6 space-y-1">
-                {workspaces.map((ws: any) => (
-                  <div
-                    key={ws.id}
-                    onClick={() => router.push(`/workspace/${ws.id}`)}
-                    className="flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100"
-                  >
-                    <Image
-                      src="/icons/workspace.svg"
-                      alt=""
-                      width={16}
-                      height={16}
-                    />
-                    <span className="text-sm text-gray-700">{ws.name}</span>
-                  </div>
-                ))}
+                {workspaces.map((ws: any) => {
+                  // Check if this workspace is currently active
+                  const isActive = router.asPath.startsWith(
+                    `/workspace/${ws.id}`,
+                  );
+
+                  return (
+                    <div
+                      key={ws.id}
+                      onClick={() => router.push(`/workspace/${ws.id}`)}
+                      className={`flex cursor-pointer items-center space-x-3 rounded-md p-2 transition-all duration-200 ${
+                        isActive
+                          ? "border-gray-500 bg-gray-50 text-gray-700 shadow-sm"
+                          : "hover:bg-gray-100"
+                      }`}
+                    >
+                      <Image
+                        src="/icons/workspace.svg"
+                        alt=""
+                        width={16}
+                        height={16}
+                        className={isActive ? "opacity-80" : ""}
+                      />
+                      <span
+                        className={`text-sm ${isActive ? "font-medium" : "text-gray-700"}`}
+                      >
+                        {ws.name}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </nav>
@@ -257,8 +273,14 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
               )}
             </div>
 
-            <button className="mt-2 w-full rounded-md bg-[#166ee1] px-4 py-2 text-white hover:bg-blue-700">
-              {!sidebarCollapsed && <span className="text-sm">+ Create</span>}
+            <button
+              className={`mt-2 w-full rounded-md ${sidebarCollapsed ? "border border-gray-300/90 p-0 text-xl font-thin" : "bg-[#166ee1] py-2 text-white hover:bg-blue-700"}`}
+            >
+              {sidebarCollapsed ? (
+                <span>+</span>
+              ) : (
+                <span className="text-sm">+ Create</span>
+              )}
             </button>
           </div>
         </div>
@@ -273,7 +295,7 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
 
       {/* Create Workspace Modal */}
       {showCreateWorkspace && (
-        <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
+        <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
             <h3 className="mb-4 text-lg text-gray-900">Create New Workspace</h3>
             <div className="space-y-4">

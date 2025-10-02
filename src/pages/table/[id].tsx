@@ -72,11 +72,14 @@ export default function TableDetail() {
   }, [table?.columns, columnVisibility]);
 
   // Fetch all tables for the base
-  const { data: baseTables, isLoading: tablesLoading } =
-    api.table.getByBaseId.useQuery(
-      { baseId: table?.baseId ?? "" },
-      { enabled: !!table?.baseId && !!table },
-    );
+  const {
+    data: baseTables,
+    isLoading: tablesLoading,
+    refetch: refetchTables,
+  } = api.table.getByBaseId.useQuery(
+    { baseId: table?.baseId ?? "" },
+    { enabled: !!table?.baseId && !!table },
+  );
 
   const addSampleData = api.table.addSampleData.useMutation({
     onMutate: async (variables) => {
@@ -189,7 +192,7 @@ export default function TableDetail() {
 
   const handleTableCreated = () => {
     // Refetch tables to update the list
-    window.location.reload();
+    void refetchTables();
   };
 
   return (
@@ -279,52 +282,6 @@ export default function TableDetail() {
           </TableNavigation>
         </div>
       </TableViewLayout>
-
-      {/* Add Sample Data Modal */}
-      {showAddDataModal && (
-        <div className="bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">
-            <h3 className="mb-4 text-lg text-gray-900">Add Sample Data</h3>
-            <p className="mb-4 text-sm text-gray-600">
-              How many sample rows would you like to add?
-            </p>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-700">
-                  Number of rows
-                </label>
-                <input
-                  type="number"
-                  defaultValue={100}
-                  min={1}
-                  max={1000}
-                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end space-x-3">
-              <button
-                onClick={() => setShowAddDataModal(false)}
-                className="rounded-md border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  addSampleData.mutate({
-                    tableId: table.id,
-                    count: 100,
-                  });
-                }}
-                disabled={addSampleData.isPending}
-                className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {addSampleData.isPending ? "Adding..." : "Add Sample Data"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

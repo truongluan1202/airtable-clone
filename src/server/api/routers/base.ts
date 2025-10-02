@@ -1,59 +1,214 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { randomUUID } from "crypto";
+import { createId } from "@paralleldrive/cuid2";
 
 export const baseRouter = createTRPCRouter({
-  // Get all bases for the current user
+  // Get all bases for the current user - Optimized with raw SQL
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    return ctx.prisma.base.findMany({
+    // Use raw SQL for better performance with new indexes
+    const bases = await ctx.prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        description: string | null;
+        workspaceId: string;
+        userId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        workspaceName: string;
+        workspaceDescription: string | null;
+        tableCount: bigint;
+        totalRows: bigint;
+        totalColumns: bigint;
+      }>
+    >`
+      SELECT 
+        b.id,
+        b.name,
+        b.description,
+        b."workspaceId",
+        b."userId",
+        b."createdAt",
+        b."updatedAt",
+        w.name as "workspaceName",
+        w.description as "workspaceDescription",
+        COUNT(DISTINCT t.id) as "tableCount",
+        COUNT(DISTINCT r.id) as "totalRows",
+        COUNT(DISTINCT c.id) as "totalColumns"
+      FROM "Base" b
+      JOIN "Workspace" w ON b."workspaceId" = w.id
+      LEFT JOIN "Table" t ON b.id = t."baseId"
+      LEFT JOIN "Row" r ON t.id = r."tableId"
+      LEFT JOIN "Column" c ON t.id = c."tableId"
+      WHERE b."userId" = ${ctx.session.user.id}
+      GROUP BY b.id, b.name, b.description, b."workspaceId", b."userId", b."createdAt", b."updatedAt", w.name, w.description
+      ORDER BY b."createdAt" DESC
+    `;
+
+    // Get tables separately for better performance (only if needed)
+    const tables = await ctx.prisma.table.findMany({
       where: {
-        userId: ctx.session.user.id,
+        base: {
+          userId: ctx.session.user.id,
+        },
       },
-      include: {
-        workspace: true,
-        tables: {
-          include: {
-            _count: {
-              select: {
-                rows: true,
-                columns: true,
-              },
-            },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        baseId: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: {
+          select: {
+            rows: true,
+            columns: true,
           },
         },
       },
       orderBy: {
-        createdAt: "desc",
+        createdAt: "asc",
       },
     });
+
+    // Group tables by baseId for efficient lookup
+    const tablesByBaseId = tables.reduce(
+      (acc: Record<string, typeof tables>, table: any) => {
+        acc[table.baseId] ??= [];
+        acc[table.baseId].push(table);
+        return acc;
+      },
+      {} as Record<string, typeof tables>,
+    );
+
+    // Combine bases with their tables and workspace info
+    return bases.map((base: any) => ({
+      id: base.id,
+      name: base.name,
+      description: base.description,
+      workspaceId: base.workspaceId,
+      userId: base.userId,
+      createdAt: base.createdAt,
+      updatedAt: base.updatedAt,
+      workspace: {
+        id: base.workspaceId,
+        name: base.workspaceName,
+        description: base.workspaceDescription,
+        userId: base.userId,
+        createdAt: base.createdAt, // Approximate
+        updatedAt: base.updatedAt, // Approximate
+      },
+      tables: tablesByBaseId[base.id] ?? [],
+      _count: {
+        tables: Number(base.tableCount),
+      },
+    }));
   }),
 
-  // Get all bases for a specific workspace
+  // Get all bases for a specific workspace - Optimized with raw SQL
   getByWorkspace: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.prisma.base.findMany({
+      // Use raw SQL for better performance with new indexes
+      const bases = await ctx.prisma.$queryRaw<
+        Array<{
+          id: string;
+          name: string;
+          description: string | null;
+          workspaceId: string;
+          userId: string;
+          createdAt: Date;
+          updatedAt: Date;
+          workspaceName: string;
+          workspaceDescription: string | null;
+          tableCount: bigint;
+          totalRows: bigint;
+          totalColumns: bigint;
+        }>
+      >`
+        SELECT 
+          b.id,
+          b.name,
+          b.description,
+          b."workspaceId",
+          b."userId",
+          b."createdAt",
+          b."updatedAt",
+          w.name as "workspaceName",
+          w.description as "workspaceDescription",
+          COUNT(DISTINCT t.id) as "tableCount",
+          COUNT(DISTINCT r.id) as "totalRows",
+          COUNT(DISTINCT c.id) as "totalColumns"
+        FROM "Base" b
+        JOIN "Workspace" w ON b."workspaceId" = w.id
+        LEFT JOIN "Table" t ON b.id = t."baseId"
+        LEFT JOIN "Row" r ON t.id = r."tableId"
+        LEFT JOIN "Column" c ON t.id = c."tableId"
+        WHERE b."workspaceId" = ${input.workspaceId}
+          AND b."userId" = ${ctx.session.user.id}
+        GROUP BY b.id, b.name, b.description, b."workspaceId", b."userId", b."createdAt", b."updatedAt", w.name, w.description
+        ORDER BY b."createdAt" DESC
+      `;
+
+      // Get tables separately for better performance (only if needed)
+      const tables = await ctx.prisma.table.findMany({
         where: {
-          workspaceId: input.workspaceId,
-          userId: ctx.session.user.id,
+          base: {
+            workspaceId: input.workspaceId,
+            userId: ctx.session.user.id,
+          },
         },
-        include: {
-          workspace: true,
-          tables: {
-            include: {
-              _count: {
-                select: {
-                  rows: true,
-                  columns: true,
-                },
-              },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          baseId: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              rows: true,
+              columns: true,
             },
           },
         },
         orderBy: {
-          createdAt: "desc",
+          createdAt: "asc",
         },
       });
+
+      // Group tables by baseId for efficient lookup
+      const tablesByBaseId = tables.reduce(
+        (acc: Record<string, typeof tables>, table: any) => {
+          acc[table.baseId] ??= [];
+          acc[table.baseId].push(table);
+          return acc;
+        },
+        {} as Record<string, typeof tables>,
+      );
+
+      // Combine bases with their tables and workspace info
+      return bases.map((base: any) => ({
+        id: base.id,
+        name: base.name,
+        description: base.description,
+        workspaceId: base.workspaceId,
+        userId: base.userId,
+        createdAt: base.createdAt,
+        updatedAt: base.updatedAt,
+        workspace: {
+          id: base.workspaceId,
+          name: base.workspaceName,
+          description: base.workspaceDescription,
+          userId: base.userId,
+          createdAt: base.createdAt, // Approximate
+          updatedAt: base.updatedAt, // Approximate
+        },
+        tables: tablesByBaseId[base.id] ?? [],
+        _count: {
+          tables: Number(base.tableCount),
+        },
+      }));
     }),
 
   // Get a single base by ID
@@ -150,13 +305,14 @@ export const baseRouter = createTRPCRouter({
       // Add sample data
       const { faker } = await import("@faker-js/faker");
 
-      // Use transaction for atomic operations with optimized bulk creation
+      // Use transaction for atomic operations with direct bulk insert
       await ctx.prisma.$transaction(
         async (tx: any) => {
-          // Pre-generate row IDs
-          const rowIds = Array.from({ length: 5 }, () => randomUUID());
+          // Enable faster commits for this transaction only
+          await tx.$executeRaw`SET LOCAL synchronous_commit = off`;
 
-          // Pre-generate all data in memory
+          // Pre-generate row IDs and data
+          const rowIds = Array.from({ length: 5 }, () => createId());
           const sampleRows = [];
           const cells = [];
 
@@ -169,11 +325,11 @@ export const baseRouter = createTRPCRouter({
               let value;
               if (column.type === "TEXT") {
                 if (column.name.toLowerCase().includes("name")) {
-                  value = faker.person.fullName();
+                  value = faker.person.firstName(); // Shorter than fullName
                 } else if (column.name.toLowerCase().includes("email")) {
                   value = faker.internet.email();
                 } else {
-                  value = faker.lorem.words(2);
+                  value = faker.lorem.word(); // Single word instead of multiple
                 }
               } else if (column.type === "NUMBER") {
                 value = faker.number.int({ min: 1, max: 100 });
@@ -194,21 +350,21 @@ export const baseRouter = createTRPCRouter({
               });
             }
 
-            // Create row with cache and search data included
+            // Create row data
             sampleRows.push({
               id: rowId,
               tableId: table.id,
-              cache,
-              search: searchTexts.join(" "),
+              cache: JSON.stringify(cache),
+              search: searchTexts.join(" ").toLowerCase(),
             });
           }
 
-          // Ultra-fast raw SQL bulk insert for rows
+          // Direct bulk insert for rows (faster than temp tables)
           if (sampleRows.length > 0) {
             const rowValues = sampleRows
               .map(
                 (row) =>
-                  `('${row.id}', '${row.tableId}', '${JSON.stringify(row.cache).replace(/'/g, "''")}', '${row.search.replace(/'/g, "''")}', NOW(), NOW())`,
+                  `('${row.id}', '${row.tableId}', '${row.cache.replace(/'/g, "''")}', '${row.search.replace(/'/g, "''")}', NOW(), NOW())`,
               )
               .join(",");
 
@@ -219,12 +375,12 @@ export const baseRouter = createTRPCRouter({
             `);
           }
 
-          // Ultra-fast raw SQL bulk insert for cells
+          // Direct bulk insert for cells (faster than temp tables)
           if (cells.length > 0) {
             const cellValues = cells
               .map(
                 (cell) =>
-                  `('${randomUUID()}', '${cell.rowId}', '${cell.columnId}', ${cell.vText ? `'${cell.vText.toString().replace(/'/g, "''")}'` : "NULL"}, ${cell.vNumber ?? "NULL"}, NOW(), NOW())`,
+                  `('${createId()}', '${cell.rowId}', '${cell.columnId}', ${cell.vText ? `'${cell.vText.toString().replace(/'/g, "''")}'` : "NULL"}, ${cell.vNumber ?? "NULL"}, NOW(), NOW())`,
               )
               .join(",");
 
@@ -236,7 +392,7 @@ export const baseRouter = createTRPCRouter({
           }
         },
         {
-          timeout: 30000, // 30 seconds timeout for ultra-large batches
+          timeout: 10000, // 10 seconds timeout for small base creation
         },
       );
 
