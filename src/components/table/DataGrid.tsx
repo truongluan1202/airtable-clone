@@ -4,10 +4,10 @@ import { useDataGridState } from "./hooks/useDataGridState";
 import { useDataGridMutations } from "./hooks/useDataGridMutations";
 import { useDataGridLogic } from "./hooks/useDataGridLogic";
 import { useKeyboardNavigation } from "./hooks/useKeyboardNavigation";
-import { useStableRowOrder } from "./hooks/useStableRowOrder";
+// import { useStableRowOrder } from "./hooks/useStableRowOrder";
 import * as TableColumns from "./useTableColumns";
 import { TableHeader } from "./TableHeader";
-import { TableBody } from "./TableBody";
+// import { TableBody } from "./TableBody";
 import { VirtualizedTableBody } from "./VirtualizedTableBody";
 import { DataGridContextMenu } from "./DataGridContextMenu";
 import type { DataGridProps } from "./types";
@@ -47,8 +47,9 @@ export function DataGrid({
   const tableRef = useRef<HTMLDivElement>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
 
-  // Maintain stable row order to prevent reordering on cell clicks
-  const stableData = useStableRowOrder(data);
+  // Memoize data and columns to ensure stable references
+  const stableData = useMemo(() => data, [data]);
+  const stableColumns = useMemo(() => columns, [columns]);
 
   // Custom hooks for state management
   const {
@@ -92,7 +93,7 @@ export function DataGrid({
     isColumnSorted,
     getColumnSortDirection,
     isColumnFiltered,
-  } = useDataGridLogic(stableData, columns, searchQuery, sort, filters);
+  } = useDataGridLogic(stableData, stableColumns, searchQuery, sort, filters);
 
   // Handle click outside to close dropdowns, context menu, and clear cell selection
   useEffect(() => {
@@ -124,7 +125,7 @@ export function DataGrid({
 
   // Get visible columns based on column visibility settings
   const visibleColumns = useMemo(() => {
-    return columns.filter((column) => {
+    return stableColumns.filter((column) => {
       // If columnVisibility is empty or column not in visibility state, show by default
       if (
         Object.keys(columnVisibility).length === 0 ||
@@ -135,7 +136,7 @@ export function DataGrid({
       // Otherwise, use the visibility setting
       return columnVisibility[column.id] === true;
     });
-  }, [columns, columnVisibility]);
+  }, [stableColumns, columnVisibility]);
 
   // Create table columns using the custom hook
   const tableColumns = TableColumns.useTableColumns({
@@ -144,7 +145,7 @@ export function DataGrid({
     toggleRowSelection,
     getCellValue,
     handleCellUpdate: (rowId: string, columnId: string, value: string) =>
-      handleCellUpdate(rowId, columnId, value, columns, setCellValues),
+      handleCellUpdate(rowId, columnId, value, stableColumns, setCellValues),
     isEditing,
     handleCellEdit,
     handleCellSelect,
@@ -205,7 +206,7 @@ export function DataGrid({
         >
           <VirtualizedTableBody
             rows={table.getRowModel().rows}
-            columns={columns}
+            columns={stableColumns}
             selectedCell={selectedCell}
             searchQuery={searchQuery}
             isColumnSorted={isColumnSorted}

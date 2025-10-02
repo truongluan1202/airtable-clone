@@ -16,23 +16,17 @@ export const EditableCell = memo(function EditableCell({
   const [editValue, setEditValue] = useState(value);
   const [isDoubleClick, setIsDoubleClick] = useState(false);
   const [showFullContent, setShowFullContent] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
   const [isEditingInModal, setIsEditingInModal] = useState(false);
   const [modalEditValue, setModalEditValue] = useState(value);
   const [isHovered, setIsHovered] = useState(false);
   const cellRef = useRef<HTMLDivElement>(null);
 
-  // Ensure component is mounted before rendering portal
+  // Sync editValue with value when not editing - guarded to prevent loops
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Sync editValue with value when not editing
-  useEffect(() => {
-    if (!isEditing) {
+    if (!isEditing && editValue !== value) {
       setEditValue(value);
     }
-  }, [value, isEditing]);
+  }, [value, isEditing, editValue]);
 
   // Sync modal edit value when modal opens
   useEffect(() => {
@@ -228,8 +222,7 @@ export const EditableCell = memo(function EditableCell({
       </div>
 
       {/* Full Content Modal */}
-      {isMounted &&
-        showFullContent &&
+      {showFullContent &&
         createPortal(
           <div
             className="cell-modal-overlay bg-opacity-10 flex items-center justify-center bg-black"

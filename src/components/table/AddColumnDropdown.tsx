@@ -97,10 +97,10 @@ export function AddColumnDropdown({
                       width="16"
                       height="16"
                       fill="currentColor"
-                      shape-rendering="geometricprecision"
+                      shapeRendering="geometricprecision"
                     >
                       <path
-                        fill-rule="evenodd"
+                        fillRule="evenodd"
                         d="M8.442 3.266a.5.5 0 0 0-.884 0l-4.5 8.5a.5.5 0 1 0 .884.468L5.125 10h5.75l1.183 2.234a.5.5 0 1 0 .884-.468zM10.346 9 8 4.569 5.654 9z"
                       />
                     </svg>
@@ -142,10 +142,10 @@ export function AddColumnDropdown({
                       width="16"
                       height="16"
                       fill="currentColor"
-                      shape-rendering="geometricprecision"
+                      shapeRendering="geometricprecision"
                     >
                       <path
-                        fill-rule="evenodd"
+                        fillRule="evenodd"
                         d="M8.442 3.266a.5.5 0 0 0-.884 0l-4.5 8.5a.5.5 0 1 0 .884.468L5.125 10h5.75l1.183 2.234a.5.5 0 1 0 .884-.468zM10.346 9 8 4.569 5.654 9z"
                       />
                     </svg>

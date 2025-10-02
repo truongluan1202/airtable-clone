@@ -212,7 +212,7 @@ export function AirtableLayout({ children }: AirtableLayoutProps) {
                       onClick={() => router.push(`/workspace/${ws.id}`)}
                       className={`flex cursor-pointer items-center space-x-3 rounded-md p-2 transition-all duration-200 ${
                         isActive
-                          ? "border-gray-500 bg-gray-50 text-gray-700 shadow-sm"
+                          ? "border-l-2 border-gray-500 bg-gray-50 text-gray-700 shadow-sm"
                           : "hover:bg-gray-100"
                       }`}
                     >

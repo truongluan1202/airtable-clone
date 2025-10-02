@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { api } from "~/utils/api";
 import { DataGrid } from "~/components/table/DataGrid";
 import { TableNavigation } from "~/components/table/TableNavigation";
@@ -56,20 +56,74 @@ export default function TableDetail() {
     },
   );
 
-  // Flatten all pages into a single array of rows
-  const allRows = infiniteData?.pages.flatMap((page) => page.rows) ?? [];
+  // Use refs to track previous values and prevent unnecessary re-renders
+  const prevAllRowsRef = useRef<any[]>([]);
+  const prevColumnsRef = useRef<any[]>([]);
+
+  // Flatten all pages into a single array of rows - stable reference
+  const allRows = useMemo(() => {
+    if (!infiniteData?.pages) return [];
+    const newRows = infiniteData.pages.flatMap((page) => page.rows);
+
+    // Only update if the data actually changed
+    if (
+      newRows.length !== prevAllRowsRef.current.length ||
+      newRows.some((row, index) => row.id !== prevAllRowsRef.current[index]?.id)
+    ) {
+      prevAllRowsRef.current = newRows;
+    }
+
+    return prevAllRowsRef.current;
+  }, [infiniteData?.pages]);
+
   const table = infiniteData?.pages[0]?.table;
+
+  // Memoize columns to prevent infinite re-renders - stable reference
+  const columns = useMemo(() => {
+    if (!table?.columns) return [];
+
+    // Only update if the columns actually changed
+    if (
+      table.columns.length !== prevColumnsRef.current.length ||
+      table.columns.some(
+        (col: any, index: number) =>
+          col.id !== prevColumnsRef.current[index]?.id,
+      )
+    ) {
+      prevColumnsRef.current = table.columns;
+    }
+
+    return prevColumnsRef.current;
+  }, [table?.columns]);
+
+  // Transform table data to match DataGrid format using flatter structure - memoized to prevent infinite re-renders
+  const gridData = useMemo(() => {
+    return allRows.map((row: any) => {
+      // Create a dynamic object based on the actual table columns
+      const rowData: any = { id: row.id };
+
+      // Use cache data directly - much more efficient than cell lookups
+      columns.forEach((column: any) => {
+        // Get value directly from cache
+        const value = row.data?.[column.id];
+        rowData[column.name] = value?.toString() ?? "";
+      });
+
+      return rowData;
+    });
+  }, [allRows, columns]);
 
   // Initialize column visibility when table data loads
   useEffect(() => {
-    if (table?.columns && Object.keys(columnVisibility).length === 0) {
+    if (columns.length > 0 && Object.keys(columnVisibility).length === 0) {
       const initialVisibility: Record<string, boolean> = {};
-      table.columns.forEach((column: { id: string }) => {
+      columns.forEach((column: { id: string }) => {
         initialVisibility[column.id] = true; // All columns visible by default
       });
       setColumnVisibility(initialVisibility);
     }
-  }, [table?.columns, columnVisibility]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns]); // Removed columnVisibility from dependencies to prevent infinite loop
 
   // Fetch all tables for the base
   const {
@@ -157,21 +211,6 @@ export default function TableDetail() {
     );
   }
 
-  // Transform table data to match DataGrid format using flatter structure
-  const gridData = allRows.map((row: any) => {
-    // Create a dynamic object based on the actual table columns
-    const rowData: any = { id: row.id };
-
-    // Use cache data directly - much more efficient than cell lookups
-    table?.columns?.forEach((column: any) => {
-      // Get value directly from cache
-      const value = row.data?.[column.id];
-      rowData[column.name] = value?.toString() ?? "";
-    });
-
-    return rowData;
-  });
-
   // Use actual tables from the database
   const tables =
     baseTables?.map((t: any) => ({
@@ -238,7 +277,7 @@ export default function TableDetail() {
           <TableNavigation
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
-            columns={table?.columns}
+            columns={columns}
             columnVisibility={columnVisibility}
             onColumnVisibilityChange={(columnId, visible) => {
               setColumnVisibility((prev) => ({
@@ -253,7 +292,7 @@ export default function TableDetail() {
           >
             <DataGrid
               data={gridData}
-              columns={table?.columns}
+              columns={columns}
               tableId={table?.id}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
@@ -276,8 +315,8 @@ export default function TableDetail() {
               // Bulk loading props
               isBulkLoading={isBulkLoading}
               bulkLoadingMessage={bulkLoadingMessage}
-              // Data loading state to disable operations
-              isDataLoading={hasNextPage || isFetchingNextPage}
+              // Data loading state to disable operations - only true when actually fetching
+              isDataLoading={isFetchingNextPage}
             />
           </TableNavigation>
         </div>

@@ -265,13 +265,30 @@ export function VirtualizedTableBody({
                           </div>
                         );
                       })
-                    : // Fallback if no real rows yet - use columns directly
-                      columns.map((column, columnIndex) => {
-                        const isFirstColumn = columnIndex === 0;
-                        return (
+                    : // Fallback if no real rows yet - create consistent structure with select + data columns + addColumn
+                      [
+                        // Select column
+                        <div
+                          key={`skeleton-${virtualRow.index}-select`}
+                          className="flex min-w-0 flex-1 items-center border-b border-gray-200 px-3 py-2"
+                          style={{
+                            width: 85,
+                            minWidth: 85,
+                            maxWidth: 85,
+                            height: "40px",
+                          }}
+                        >
+                          <div className="flex items-center justify-center">
+                            <span className="text-xs text-gray-500">
+                              {actualRowNumber}
+                            </span>
+                          </div>
+                        </div>,
+                        // Data columns
+                        ...columns.map((column, _columnIndex) => (
                           <div
                             key={`skeleton-${virtualRow.index}-${column.id}`}
-                            className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} flex items-center border-b border-gray-200 px-3 py-2`}
+                            className="flex min-w-0 flex-1 items-center border-r border-b border-gray-200 px-3 py-2"
                             style={{
                               width: 200,
                               minWidth: 200,
@@ -279,20 +296,10 @@ export function VirtualizedTableBody({
                               height: "40px",
                             }}
                           >
-                            {columnIndex === 0 ? (
-                              // Show row number for first column
-                              <div className="flex items-center justify-center">
-                                <span className="text-xs text-gray-500">
-                                  {actualRowNumber}
-                                </span>
-                              </div>
-                            ) : (
-                              // Show skeleton placeholder
-                              <div className="h-4 w-24 animate-pulse rounded bg-gray-200 opacity-60"></div>
-                            )}
+                            <div className="h-4 w-24 animate-pulse rounded bg-gray-200 opacity-60"></div>
                           </div>
-                        );
-                      })}
+                        )),
+                      ]}
                 </div>
               </div>
             );
