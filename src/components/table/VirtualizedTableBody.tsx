@@ -243,7 +243,7 @@ export function VirtualizedTableBody({
                         return (
                           <div
                             key={`skeleton-${virtualRow.index}-${cell.column.id}`}
-                            className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} flex items-center border-b border-gray-200 px-3 py-2`}
+                            className={`min-w-0 flex-1 ${!isFirstColumn ? "border-r" : ""} flex items-center justify-center border-b border-gray-200 px-3 py-2`}
                             style={{
                               width: cell.column.getSize() || 200,
                               minWidth: cell.column.getSize() || 200,
@@ -270,7 +270,7 @@ export function VirtualizedTableBody({
                         // Select column
                         <div
                           key={`skeleton-${virtualRow.index}-select`}
-                          className="flex min-w-0 flex-1 items-center border-b border-gray-200 px-3 py-2"
+                          className="flex min-w-0 flex-1 items-center justify-center border-b border-gray-200 px-3 py-2"
                           style={{
                             width: 85,
                             minWidth: 85,
