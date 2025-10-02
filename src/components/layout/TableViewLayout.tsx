@@ -457,6 +457,20 @@ export function TableViewLayout({
         isDeleteDisabled={isDeleteDisabled}
         isDeleting={deleteTable.isPending}
       />
+
+      {/* Full-page loading overlay when deleting table */}
+      {deleteTable.isPending && (
+        <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black backdrop-blur-sm">
+          <div className="flex flex-col items-center space-y-4 rounded-lg bg-white p-8 shadow-2xl">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600"></div>
+            <div className="text-center">
+              <p className="text-sm text-gray-600">
+                Please wait while we delete the table...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

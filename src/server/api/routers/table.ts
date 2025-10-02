@@ -522,14 +522,14 @@ export const tableRouter = createTRPCRouter({
       const writerUrl = env.DIRECT_DATABASE_URL;
 
       // 3) Batching, parallelism
-      const batchSize = 10_000; // tune 10k–25k based on DB
+      const batchSize = 35000; // tune 10k–25k based on DB
       const totalBatches = Math.ceil(input.count / batchSize);
       const batches = Array.from({ length: totalBatches }, (_, i) => {
         const start = i * batchSize;
         const count = Math.min(batchSize, input.count - start);
         return { start, count };
       });
-      const parallel = Math.min(2, totalBatches); // 2 parallel batches
+      const parallel = Math.min(4, totalBatches); // 2 parallel batches
 
       // Per-batch worker: COPY rows then cells in a single txn
       const processBatch = async (b: { start: number; count: number }) => {
