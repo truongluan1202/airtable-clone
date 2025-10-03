@@ -136,12 +136,12 @@ export default function Home() {
                   <Image
                     src="/icons/workspace.svg"
                     alt="Workspace"
-                    width={48}
-                    height={48}
+                    width={32}
+                    height={32}
                     className="text-blue-600"
                   />
                 </div>
-                <h1 className="mb-4 text-2xl font-bold text-gray-900">
+                <h1 className="mb-4 text-xl font-bold text-gray-900">
                   Redirecting...
                 </h1>
                 <p className="mb-8 max-w-md text-lg text-gray-600">
