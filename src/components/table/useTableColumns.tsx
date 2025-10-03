@@ -85,6 +85,7 @@ interface UseTableColumnsProps {
   isRowHovered?: (rowId: string) => boolean;
   // Loading states
   isAddingColumn?: boolean;
+  isAddingRow?: boolean;
   isDeletingColumn?: boolean;
   isDataLoading?: boolean;
 }
@@ -109,6 +110,7 @@ export function useTableColumns({
   getColumnSortDirection,
   isRowHovered,
   isAddingColumn = false,
+  isAddingRow = false,
   isDeletingColumn = false,
   isDataLoading = false,
 }: UseTableColumnsProps): ColumnDef<DataRow, any>[] {
@@ -231,7 +233,13 @@ export function useTableColumns({
                   handleCellUpdate(row.original.id, column.id, value)
                 }
                 isEditing={isEditing(row.original.id, column.id)}
-                onStartEdit={() => handleCellEdit(row.original.id, column.id)}
+                onStartEdit={() => {
+                  // Prevent editing when a row or column is being added to avoid race conditions
+                  if (isAddingRow || isAddingColumn) {
+                    return;
+                  }
+                  handleCellEdit(row.original.id, column.id);
+                }}
                 onStopEdit={handleCellStopEdit}
                 onSelect={() => handleCellSelect(row.original.id, column.id)}
                 placeholder={
@@ -305,6 +313,7 @@ export function useTableColumns({
     getColumnSortDirection,
     isRowHovered,
     isAddingColumn,
+    isAddingRow,
     isDeletingColumn,
     isDataLoading,
   ]);

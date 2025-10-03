@@ -229,9 +229,9 @@ export default function TableDetail() {
     }
   };
 
-  const handleTableCreated = () => {
+  const handleTableCreated = async () => {
     // Refetch tables to update the list
-    void refetchTables();
+    await refetchTables();
   };
 
   return (

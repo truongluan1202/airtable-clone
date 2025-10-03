@@ -1,217 +1,83 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { createId } from "@paralleldrive/cuid2";
+import { faker } from "@faker-js/faker";
 
 export const baseRouter = createTRPCRouter({
-  // Get all bases for the current user - Optimized with raw SQL
+  // Get all bases for the current user - Simplified for performance
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    // Use raw SQL for better performance with new indexes
-    const bases = await ctx.prisma.$queryRaw<
-      Array<{
-        id: string;
-        name: string;
-        description: string | null;
-        workspaceId: string;
-        userId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        workspaceName: string;
-        workspaceDescription: string | null;
-        tableCount: bigint;
-        totalRows: bigint;
-        totalColumns: bigint;
-      }>
-    >`
-      SELECT 
-        b.id,
-        b.name,
-        b.description,
-        b."workspaceId",
-        b."userId",
-        b."createdAt",
-        b."updatedAt",
-        w.name as "workspaceName",
-        w.description as "workspaceDescription",
-        COUNT(DISTINCT t.id) as "tableCount",
-        COUNT(DISTINCT r.id) as "totalRows",
-        COUNT(DISTINCT c.id) as "totalColumns"
-      FROM "Base" b
-      JOIN "Workspace" w ON b."workspaceId" = w.id
-      LEFT JOIN "Table" t ON b.id = t."baseId"
-      LEFT JOIN "Row" r ON t.id = r."tableId"
-      LEFT JOIN "Column" c ON t.id = c."tableId"
-      WHERE b."userId" = ${ctx.session.user.id}
-      GROUP BY b.id, b.name, b.description, b."workspaceId", b."userId", b."createdAt", b."updatedAt", w.name, w.description
-      ORDER BY b."createdAt" DESC
-    `;
-
-    // Get tables separately for better performance (only if needed)
-    const tables = await ctx.prisma.table.findMany({
+    const bases = await ctx.prisma.base.findMany({
       where: {
-        base: {
-          userId: ctx.session.user.id,
-        },
+        userId: ctx.session.user.id,
       },
       select: {
         id: true,
         name: true,
         description: true,
-        baseId: true,
+        workspaceId: true,
+        userId: true,
         createdAt: true,
         updatedAt: true,
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+          },
+        },
         _count: {
           select: {
-            rows: true,
-            columns: true,
+            tables: true,
           },
         },
       },
       orderBy: {
-        createdAt: "asc",
+        createdAt: "desc",
       },
     });
 
-    // Group tables by baseId for efficient lookup
-    const tablesByBaseId = tables.reduce(
-      (acc: Record<string, typeof tables>, table: any) => {
-        acc[table.baseId] ??= [];
-        acc[table.baseId].push(table);
-        return acc;
-      },
-      {} as Record<string, typeof tables>,
-    );
-
-    // Combine bases with their tables and workspace info
-    return bases.map((base: any) => ({
-      id: base.id,
-      name: base.name,
-      description: base.description,
-      workspaceId: base.workspaceId,
-      userId: base.userId,
-      createdAt: base.createdAt,
-      updatedAt: base.updatedAt,
-      workspace: {
-        id: base.workspaceId,
-        name: base.workspaceName,
-        description: base.workspaceDescription,
-        userId: base.userId,
-        createdAt: base.createdAt, // Approximate
-        updatedAt: base.updatedAt, // Approximate
-      },
-      tables: tablesByBaseId[base.id] ?? [],
-      _count: {
-        tables: Number(base.tableCount),
-      },
-    }));
+    return bases;
   }),
 
-  // Get all bases for a specific workspace - Optimized with raw SQL
+  // Get all bases for a specific workspace - Simplified for performance
   getByWorkspace: protectedProcedure
     .input(z.object({ workspaceId: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Use raw SQL for better performance with new indexes
-      const bases = await ctx.prisma.$queryRaw<
-        Array<{
-          id: string;
-          name: string;
-          description: string | null;
-          workspaceId: string;
-          userId: string;
-          createdAt: Date;
-          updatedAt: Date;
-          workspaceName: string;
-          workspaceDescription: string | null;
-          tableCount: bigint;
-          totalRows: bigint;
-          totalColumns: bigint;
-        }>
-      >`
-        SELECT 
-          b.id,
-          b.name,
-          b.description,
-          b."workspaceId",
-          b."userId",
-          b."createdAt",
-          b."updatedAt",
-          w.name as "workspaceName",
-          w.description as "workspaceDescription",
-          COUNT(DISTINCT t.id) as "tableCount",
-          COUNT(DISTINCT r.id) as "totalRows",
-          COUNT(DISTINCT c.id) as "totalColumns"
-        FROM "Base" b
-        JOIN "Workspace" w ON b."workspaceId" = w.id
-        LEFT JOIN "Table" t ON b.id = t."baseId"
-        LEFT JOIN "Row" r ON t.id = r."tableId"
-        LEFT JOIN "Column" c ON t.id = c."tableId"
-        WHERE b."workspaceId" = ${input.workspaceId}
-          AND b."userId" = ${ctx.session.user.id}
-        GROUP BY b.id, b.name, b.description, b."workspaceId", b."userId", b."createdAt", b."updatedAt", w.name, w.description
-        ORDER BY b."createdAt" DESC
-      `;
-
-      // Get tables separately for better performance (only if needed)
-      const tables = await ctx.prisma.table.findMany({
+      const bases = await ctx.prisma.base.findMany({
         where: {
-          base: {
-            workspaceId: input.workspaceId,
-            userId: ctx.session.user.id,
-          },
+          workspaceId: input.workspaceId,
+          userId: ctx.session.user.id,
         },
         select: {
           id: true,
           name: true,
           description: true,
-          baseId: true,
+          workspaceId: true,
+          userId: true,
           createdAt: true,
           updatedAt: true,
+          workspace: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
           _count: {
             select: {
-              rows: true,
-              columns: true,
+              tables: true,
             },
           },
         },
         orderBy: {
-          createdAt: "asc",
+          createdAt: "desc",
         },
       });
 
-      // Group tables by baseId for efficient lookup
-      const tablesByBaseId = tables.reduce(
-        (acc: Record<string, typeof tables>, table: any) => {
-          acc[table.baseId] ??= [];
-          acc[table.baseId].push(table);
-          return acc;
-        },
-        {} as Record<string, typeof tables>,
-      );
-
-      // Combine bases with their tables and workspace info
-      return bases.map((base: any) => ({
-        id: base.id,
-        name: base.name,
-        description: base.description,
-        workspaceId: base.workspaceId,
-        userId: base.userId,
-        createdAt: base.createdAt,
-        updatedAt: base.updatedAt,
-        workspace: {
-          id: base.workspaceId,
-          name: base.workspaceName,
-          description: base.workspaceDescription,
-          userId: base.userId,
-          createdAt: base.createdAt, // Approximate
-          updatedAt: base.updatedAt, // Approximate
-        },
-        tables: tablesByBaseId[base.id] ?? [],
-        _count: {
-          tables: Number(base.tableCount),
-        },
-      }));
+      return bases;
     }),
 
-  // Get a single base by ID
+  // Get a single base by ID - Simplified for performance
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -220,16 +86,38 @@ export const baseRouter = createTRPCRouter({
           id: input.id,
           userId: ctx.session.user.id,
         },
-        include: {
-          workspace: true,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          workspaceId: true,
+          userId: true,
+          createdAt: true,
+          updatedAt: true,
+          workspace: {
+            select: {
+              id: true,
+              name: true,
+              description: true,
+            },
+          },
           tables: {
-            include: {
-              columns: true,
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              baseId: true,
+              createdAt: true,
+              updatedAt: true,
               _count: {
                 select: {
                   rows: true,
+                  columns: true,
                 },
               },
+            },
+            orderBy: {
+              createdAt: "asc",
             },
           },
         },
@@ -242,13 +130,14 @@ export const baseRouter = createTRPCRouter({
       return base;
     }),
 
-  // Create a new base
+  // Create a new base with sample data
   create: protectedProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
         description: z.string().optional(),
         workspaceId: z.string(),
+        withSampleData: z.boolean().default(true),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -264,137 +153,125 @@ export const baseRouter = createTRPCRouter({
         throw new Error("Workspace not found");
       }
 
-      // Create the base
+      // Create the base with default table
       const base = await ctx.prisma.base.create({
         data: {
           name: input.name,
           description: input.description,
           workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
-        },
-      });
-
-      // Create a default table with sample data
-      const table = await ctx.prisma.table.create({
-        data: {
-          name: "Table 1",
-          description: "Default table",
-          baseId: base.id,
-          columns: {
-            create: [
-              {
-                name: "Name",
-                type: "TEXT",
+          tables: {
+            create: {
+              name: "Table 1",
+              description: "Default table",
+              columns: {
+                create: [
+                  {
+                    name: "Name",
+                    type: "TEXT",
+                  },
+                  {
+                    name: "Email",
+                    type: "TEXT",
+                  },
+                  {
+                    name: "Age",
+                    type: "NUMBER",
+                  },
+                ],
               },
-              {
-                name: "Email",
-                type: "TEXT",
-              },
-              {
-                name: "Age",
-                type: "NUMBER",
-              },
-            ],
+            },
           },
         },
         include: {
-          columns: true,
+          tables: {
+            include: {
+              columns: true,
+            },
+          },
         },
       });
 
-      // Add sample data
-      const { faker } = await import("@faker-js/faker");
+      // Add sample data if requested
+      if (input.withSampleData && base.tables.length > 0) {
+        const table = base.tables[0];
 
-      // Use transaction for atomic operations with direct bulk insert
-      await ctx.prisma.$transaction(
-        async (tx: any) => {
-          // Enable faster commits for this transaction only
-          await tx.$executeRaw`SET LOCAL synchronous_commit = off`;
+        // Create sample rows with optimized bulk insert
+        const sampleRowIds = Array.from({ length: 5 }, () => createId());
+        const sampleRows: Array<{
+          id: string;
+          tableId: string;
+          cache: Record<string, string | number | null>;
+          search: string;
+        }> = [];
+        const cells: Array<{
+          id: string;
+          rowId: string;
+          columnId: string;
+          vText: string | null;
+          vNumber: number | null;
+        }> = [];
 
-          // Pre-generate row IDs and data
-          const rowIds = Array.from({ length: 5 }, () => createId());
-          const sampleRows = [];
-          const cells = [];
+        for (let i = 0; i < 5; i++) {
+          const rowId = sampleRowIds[i];
+          const cache: Record<string, string | number | null> = {};
+          const searchTexts: string[] = [];
 
-          for (let i = 0; i < 5; i++) {
-            const rowId = rowIds[i];
-            const cache: Record<string, string | number | null> = {};
-            const searchTexts: string[] = [];
-
-            for (const column of table.columns) {
-              let value;
-              if (column.type === "TEXT") {
-                if (column.name.toLowerCase().includes("name")) {
-                  value = faker.person.firstName(); // Shorter than fullName
-                } else if (column.name.toLowerCase().includes("email")) {
-                  value = faker.internet.email();
-                } else {
-                  value = faker.lorem.word(); // Single word instead of multiple
-                }
-              } else if (column.type === "NUMBER") {
-                value = faker.number.int({ min: 1, max: 100 });
+          for (const column of table.columns) {
+            let value;
+            if (column.type === "TEXT") {
+              if (column.name.toLowerCase().includes("name")) {
+                value = faker.person.firstName();
+              } else if (column.name.toLowerCase().includes("email")) {
+                value = faker.internet.email();
+              } else {
+                value = faker.lorem.word();
               }
-
-              // Add to cache and search
-              cache[column.id] = value ?? null;
-              if (value) {
-                searchTexts.push(String(value));
-              }
-
-              // Create cell data
-              cells.push({
-                rowId,
-                columnId: column.id,
-                vText: column.type === "TEXT" ? value : null,
-                vNumber: column.type === "NUMBER" ? value : null,
-              });
+            } else if (column.type === "NUMBER") {
+              value = faker.number.int({ min: 1, max: 100 });
             }
 
-            // Create row data
-            sampleRows.push({
-              id: rowId,
-              tableId: table.id,
-              cache: JSON.stringify(cache),
-              search: searchTexts.join(" ").toLowerCase(),
+            cache[column.id] = value ?? null;
+            if (value) {
+              searchTexts.push(String(value));
+            }
+
+            cells.push({
+              id: createId(),
+              rowId: rowId!,
+              columnId: column.id,
+              vText: column.type === "TEXT" ? (value as string | null) : null,
+              vNumber:
+                column.type === "NUMBER" ? (value as number | null) : null,
             });
           }
 
-          // Direct bulk insert for rows (faster than temp tables)
-          if (sampleRows.length > 0) {
-            const rowValues = sampleRows
-              .map(
-                (row) =>
-                  `('${row.id}', '${row.tableId}', '${row.cache.replace(/'/g, "''")}', '${row.search.replace(/'/g, "''")}', NOW(), NOW())`,
-              )
-              .join(",");
+          sampleRows.push({
+            id: rowId!,
+            tableId: table.id,
+            cache: cache, // Keep as object, no JSON conversion
+            search: searchTexts.join(" ").toLowerCase(),
+          });
+        }
 
-            await tx.$executeRawUnsafe(`
-              INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
-              VALUES ${rowValues}
-              ON CONFLICT (id) DO NOTHING
-            `);
-          }
+        // Bulk insert rows and cells in a single transaction
+        await ctx.prisma.$transaction(async (tx: any) => {
+          // Insert rows
+          await tx.row.createMany({
+            data: sampleRows.map((row) => ({
+              id: row.id,
+              tableId: row.tableId,
+              cache: row.cache, // Already an object, no parsing needed
+              search: row.search,
+            })),
+          });
 
-          // Direct bulk insert for cells (faster than temp tables)
-          if (cells.length > 0) {
-            const cellValues = cells
-              .map(
-                (cell) =>
-                  `('${createId()}', '${cell.rowId}', '${cell.columnId}', ${cell.vText ? `'${cell.vText.toString().replace(/'/g, "''")}'` : "NULL"}, ${cell.vNumber ?? "NULL"}, NOW(), NOW())`,
-              )
-              .join(",");
-
-            await tx.$executeRawUnsafe(`
-              INSERT INTO "Cell" (id, "rowId", "columnId", "vText", "vNumber", "createdAt", "updatedAt")
-              VALUES ${cellValues}
-              ON CONFLICT ("rowId", "columnId") DO NOTHING
-            `);
-          }
-        },
-        {
-          timeout: 10000, // 10 seconds timeout for small base creation
-        },
-      );
+          // Insert cells
+          await tx.cell.createMany({
+            data: cells, // IDs already generated, no need to map
+          });
+        });
+      }
 
       return base;
     }),

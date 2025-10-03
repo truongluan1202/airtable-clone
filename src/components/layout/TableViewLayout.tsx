@@ -13,7 +13,7 @@ interface TableViewLayoutProps {
   baseId?: string;
   tables?: Array<{ id: string; name: string }>;
   onTableSelect?: (tableId: string) => void;
-  onTableCreated?: () => void;
+  onTableCreated?: () => Promise<void> | void;
   onAddTestRows?: (count: number) => void;
   isAddingRows?: boolean;
 }
@@ -45,10 +45,11 @@ export function TableViewLayout({
     tableId: "",
     tableName: "",
   });
+  const [deletingTableId, setDeletingTableId] = useState<string | null>(null);
   const router = useRouter();
 
   const createTable = api.table.create.useMutation({
-    onSuccess: (newTable) => {
+    onSuccess: async (newTable) => {
       setShowCreateTable(false);
       setTableNameInput("");
       setTableDescription("");
@@ -57,19 +58,23 @@ export function TableViewLayout({
       void router.push(`/table/${newTable.id}`);
 
       // Then refresh the tables list
-      onTableCreated?.();
+      if (onTableCreated) {
+        await onTableCreated();
+      }
     },
   });
 
   const deleteTable = api.table.delete.useMutation({
     onMutate: async () => {
-      // Immediate feedback - close context menu and show loading state
+      // Close context menu immediately for better UX
       setContextMenu({
         isOpen: false,
         position: { x: 0, y: 0 },
         tableId: "",
         tableName: "",
       });
+      // Mark table as being deleted for optimistic UI update
+      setDeletingTableId(contextMenu.tableId);
 
       // If we're deleting the current table, immediately navigate to another table or base
       if (contextMenu.tableId === router.query.id && baseId) {
@@ -88,11 +93,19 @@ export function TableViewLayout({
       }
     },
     onSuccess: async () => {
-      // Refresh the tables list after successful deletion
-      onTableCreated?.();
+      // Refetch data and wait for it to complete
+      if (onTableCreated) {
+        await onTableCreated();
+      }
+      // Small delay to ensure UI updates before hiding loading overlay
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Clear deleting state
+      setDeletingTableId(null);
     },
     onError: (error) => {
       console.error("Error deleting table:", error);
+      // Clear deleting state on error
+      setDeletingTableId(null);
       setContextMenu({
         isOpen: false,
         position: { x: 0, y: 0 },
@@ -319,36 +332,38 @@ export function TableViewLayout({
             {/* Left side - Table tabs */}
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-0">
-                {tables.map((table) => {
-                  const active = table.name === tableName;
-                  return (
-                    <button
-                      key={table.id}
-                      onClick={() => onTableSelect?.(table.id)}
-                      onContextMenu={(e) =>
-                        handleTableRightClick(e, table.id, table.name)
-                      }
-                      className={[
-                        "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs transition-colors",
-                        active
-                          ? [
-                              "border border-gray-300 bg-white p-0 text-gray-900",
-                              "z-20 -mb-px border-b-transparent",
-                              "after:absolute after:right-[-1px] after:left-[-1px] after:content-['']",
-                              "after:bottom-[-1px] after:h-[8px] after:bg-white",
-                              "after:border-r after:border-l after:border-gray-300",
-                              "after:pointer-events-none",
-                            ].join(" ")
-                          : "relative flex items-center text-gray-600 hover:bg-purple-100 hover:text-gray-800",
-                      ].join(" ")}
-                    >
-                      {table.name}
-                      {!active && (
-                        <span className="absolute top-2 right-[-1] bottom-2 w-px bg-gray-300"></span>
-                      )}
-                    </button>
-                  );
-                })}
+                {tables
+                  .filter((table) => table.id !== deletingTableId)
+                  .map((table) => {
+                    const active = table.name === tableName;
+                    return (
+                      <button
+                        key={table.id}
+                        onClick={() => onTableSelect?.(table.id)}
+                        onContextMenu={(e) =>
+                          handleTableRightClick(e, table.id, table.name)
+                        }
+                        className={[
+                          "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs transition-colors",
+                          active
+                            ? [
+                                "border border-gray-300 bg-white p-0 text-gray-900",
+                                "z-20 -mb-px border-b-transparent",
+                                "after:absolute after:right-[-1px] after:left-[-1px] after:content-['']",
+                                "after:bottom-[-1px] after:h-[8px] after:bg-white",
+                                "after:border-r after:border-l after:border-gray-300",
+                                "after:pointer-events-none",
+                              ].join(" ")
+                            : "relative flex items-center text-gray-600 hover:bg-purple-100 hover:text-gray-800",
+                        ].join(" ")}
+                      >
+                        {table.name}
+                        {!active && (
+                          <span className="absolute top-2 right-[-1] bottom-2 w-px bg-gray-300"></span>
+                        )}
+                      </button>
+                    );
+                  })}
               </div>
               <div className="flex items-center space-x-2">
                 <Image
@@ -460,13 +475,15 @@ export function TableViewLayout({
 
       {/* Full-page loading overlay when deleting table */}
       {deleteTable.isPending && (
-        <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black backdrop-blur-sm">
-          <div className="flex flex-col items-center space-y-4 rounded-lg bg-white p-8 shadow-2xl">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600"></div>
-            <div className="text-center">
-              <p className="text-sm text-gray-600">
-                Please wait while we delete the table...
-              </p>
+        <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black">
+          <div className="rounded-lg bg-white p-8 shadow-xl">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+              <div className="text-center">
+                <p className="mt-2 text-sm text-gray-600">
+                  Please wait while we delete the table...
+                </p>
+              </div>
             </div>
           </div>
         </div>

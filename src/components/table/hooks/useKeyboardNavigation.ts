@@ -8,6 +8,8 @@ interface UseKeyboardNavigationProps {
   handleCellSelect: (rowId: string, columnId: string) => void;
   handleCellEdit: (rowId: string, columnId: string) => void;
   editingCell: CellSelection | null;
+  isAddingRow?: boolean;
+  isAddingColumn?: boolean;
 }
 
 export function useKeyboardNavigation({
@@ -17,6 +19,8 @@ export function useKeyboardNavigation({
   handleCellSelect,
   handleCellEdit,
   editingCell,
+  isAddingRow = false,
+  isAddingColumn = false,
 }: UseKeyboardNavigationProps) {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -109,7 +113,7 @@ export function useKeyboardNavigation({
         case "Enter":
         case " ":
           e.preventDefault();
-          if (!editingCell) {
+          if (!editingCell && !isAddingRow && !isAddingColumn) {
             handleCellEdit(selectedCell.rowId, selectedCell.columnId);
           }
           break;
@@ -122,6 +126,8 @@ export function useKeyboardNavigation({
       handleCellSelect,
       handleCellEdit,
       editingCell,
+      isAddingRow,
+      isAddingColumn,
     ],
   );
 

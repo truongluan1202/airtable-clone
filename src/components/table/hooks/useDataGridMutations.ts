@@ -400,6 +400,7 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         console.error("Table ID is required to add a column");
         return;
       }
+
       addColumnMutation.mutate({
         tableId,
         name,

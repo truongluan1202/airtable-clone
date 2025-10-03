@@ -290,141 +290,126 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify base ownership with raw SQL
-      const baseResult = await ctx.prisma.$queryRaw<[{ id: string }]>`
-        SELECT id FROM "Base" 
-        WHERE id = ${input.baseId} AND "userId" = ${ctx.session.user.id}
-        LIMIT 1
-      `;
+      // Verify base ownership
+      const base = await ctx.prisma.base.findFirst({
+        where: {
+          id: input.baseId,
+          userId: ctx.session.user.id,
+        },
+      });
 
-      if (baseResult.length === 0) {
+      if (!base) {
         throw new Error("Base not found");
       }
 
-      // Use raw SQL for efficient table and column creation
-      const result = await ctx.prisma.$transaction(
-        async (tx: any) => {
-          // Generate IDs
-          const tableId = createId();
-          const nameColumnId = createId();
-          const emailColumnId = createId();
-          const ageColumnId = createId();
+      // Create table with default columns
+      const table = await ctx.prisma.table.create({
+        data: {
+          name: input.name,
+          description: input.description,
+          baseId: input.baseId,
+          columns: {
+            create: [
+              {
+                name: "Name",
+                type: "TEXT",
+              },
+              {
+                name: "Email",
+                type: "TEXT",
+              },
+              {
+                name: "Age",
+                type: "NUMBER",
+              },
+            ],
+          },
+        },
+        include: {
+          columns: true,
+        },
+      });
 
-          // Create table with raw SQL
-          await tx.$executeRaw`
-          INSERT INTO "Table" (id, name, description, "baseId", "createdAt", "updatedAt")
-          VALUES (${tableId}, ${input.name}, ${input.description ?? null}, ${input.baseId}, NOW(), NOW())
-        `;
+      // Add sample data if requested - Optimized approach
+      if (input.withSampleData) {
+        // Create sample rows with optimized bulk insert
+        const sampleRowIds = Array.from({ length: 5 }, () => createId());
+        const sampleRows: Array<{
+          id: string;
+          tableId: string;
+          cache: Record<string, string | number | null>;
+          search: string;
+        }> = [];
+        const cells: Array<{
+          id: string;
+          rowId: string;
+          columnId: string;
+          vText: string | null;
+          vNumber: number | null;
+        }> = [];
 
-          // Create default columns with raw SQL
-          await tx.$executeRaw`
-          INSERT INTO "Column" (id, name, type, "tableId", "createdAt", "updatedAt")
-          VALUES 
-            (${nameColumnId}, 'Name', 'TEXT', ${tableId}, NOW(), NOW()),
-            (${emailColumnId}, 'Email', 'TEXT', ${tableId}, NOW(), NOW()),
-            (${ageColumnId}, 'Age', 'NUMBER', ${tableId}, NOW(), NOW())
-        `;
+        for (let i = 0; i < 5; i++) {
+          const rowId = sampleRowIds[i];
+          const cache: Record<string, string | number | null> = {};
+          const searchTexts: string[] = [];
 
-          // Add sample data if requested - Optimized with bulk operations
-          if (input.withSampleData) {
-            // Create 10 sample rows with bulk insert
-            const sampleRowIds = Array.from({ length: 10 }, () => createId());
-            const rowValues = sampleRowIds
-              .map(
-                (rowId) => `('${rowId}', '${tableId}', '{}', '', NOW(), NOW())`,
-              )
-              .join(",");
+          for (const column of table.columns) {
+            let value;
+            if (column.type === "TEXT") {
+              if (column.name.toLowerCase().includes("name")) {
+                value = faker.person.firstName();
+              } else if (column.name.toLowerCase().includes("email")) {
+                value = faker.internet.email();
+              } else {
+                value = faker.lorem.word();
+              }
+            } else if (column.type === "NUMBER") {
+              value = faker.number.int({ min: 1, max: 100 });
+            }
 
-            await tx.$executeRawUnsafe(`
-            INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
-            VALUES ${rowValues}
-          `);
+            cache[column.id] = value ?? null;
+            if (value) {
+              searchTexts.push(String(value));
+            }
 
-            // Generate sample data once and reuse for both cells and cache
-            const sampleData = sampleRowIds.map((rowId) => {
-              const name = faker.person.fullName();
-              const email = faker.internet.email();
-              const age = faker.number.int({ min: 1, max: 100 });
-              return { rowId, name, email, age };
+            cells.push({
+              id: createId(),
+              rowId: rowId!,
+              columnId: column.id,
+              vText: column.type === "TEXT" ? (value as string | null) : null,
+              vNumber:
+                column.type === "NUMBER" ? (value as number | null) : null,
             });
-
-            // Create cells with bulk insert
-            const cellValues = sampleData.flatMap(
-              ({ rowId, name, email, age }) => [
-                `('${createId()}', '${rowId}', '${nameColumnId}', '${name.replace(/'/g, "''")}', NULL, NOW(), NOW())`,
-                `('${createId()}', '${rowId}', '${emailColumnId}', '${email.replace(/'/g, "''")}', NULL, NOW(), NOW())`,
-                `('${createId()}', '${rowId}', '${ageColumnId}', NULL, ${age}, NOW(), NOW())`,
-              ],
-            );
-
-            await tx.$executeRawUnsafe(`
-            INSERT INTO "Cell" (id, "rowId", "columnId", "vText", "vNumber", "createdAt", "updatedAt")
-            VALUES ${cellValues.join(",")}
-          `);
-
-            // Update row cache and search with bulk operations
-            const cacheUpdates = sampleData
-              .map(
-                ({ rowId, name, email, age }) =>
-                  `('${rowId}', '${tableId}', jsonb_build_object('${nameColumnId}', '${name.replace(/'/g, "''")}', '${emailColumnId}', '${email.replace(/'/g, "''")}', '${ageColumnId}', ${age}), '${`${name} ${email} ${age}`.replace(/'/g, "''")}', NOW(), NOW())`,
-              )
-              .join(",");
-
-            await tx.$executeRawUnsafe(`
-            UPDATE "Row" 
-            SET 
-              cache = updates.cache,
-              search = updates.search,
-              "updatedAt" = updates."updatedAt"
-            FROM (VALUES ${cacheUpdates}) AS updates(id, "tableId", cache, search, "updatedAt")
-            WHERE "Row".id = updates.id
-          `);
           }
 
-          // Return the created table with columns
-          const table = await tx.$queryRaw<
-            Array<{
-              id: string;
-              name: string;
-              description: string | null;
-              baseId: string;
-              createdAt: Date;
-              updatedAt: Date;
-            }>
-          >`
-          SELECT id, name, description, "baseId", "createdAt", "updatedAt"
-          FROM "Table"
-          WHERE id = ${tableId}
-          LIMIT 1
-        `;
+          sampleRows.push({
+            id: rowId!,
+            tableId: table.id,
+            cache: cache, // Keep as object, no JSON conversion
+            search: searchTexts.join(" ").toLowerCase(),
+          });
+        }
 
-          const columns = await tx.$queryRaw<
-            Array<{
-              id: string;
-              name: string;
-              type: string;
-              tableId: string;
-              createdAt: Date;
-              updatedAt: Date;
-            }>
-          >`
-          SELECT id, name, type, "tableId", "createdAt", "updatedAt"
-          FROM "Column"
-          WHERE "tableId" = ${tableId}
-          ORDER BY "createdAt" ASC
-        `;
+        // Bulk insert rows and cells in a single transaction
+        await ctx.prisma.$transaction(async (tx: any) => {
+          // Insert rows
+          await tx.row.createMany({
+            data: sampleRows.map((row) => ({
+              id: row.id,
+              tableId: row.tableId,
+              cache: row.cache, // Already an object, no parsing needed
+              search: row.search,
+            })),
+          });
 
-          return {
-            ...table[0],
-            columns,
-          };
-        },
-        {
-          timeout: 30000, // 30 seconds timeout for table creation with sample data
-        },
-      );
+          // Insert cells
+          await tx.cell.createMany({
+            data: cells, // IDs already generated, no need to map
+          });
+        });
+      }
 
-      return result;
+      return table;
     }),
 
   // Update a table
@@ -801,16 +786,34 @@ export const tableRouter = createTRPCRouter({
         throw new Error("Table not found");
       }
 
-      // Use raw SQL for efficient row creation - no pre-creation of empty cells
+      // Use raw SQL for efficient row creation - ensure cache includes all current columns
       const result = await ctx.prisma.$transaction(
         async (tx: any) => {
+          // Lock the table to prevent concurrent column addition
+          await tx.$executeRaw`SELECT * FROM "Table" WHERE id = ${input.tableId} FOR UPDATE`;
+
           // Generate new row ID
           const rowId = createId();
 
-          // Create row with empty cache - cells will be created lazily when first edited
+          // Get all current columns to initialize cache properly
+          const columns = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT id FROM "Column" WHERE "tableId" = ${input.tableId}
+          `;
+
+          // Create initial cache with all current columns set to null
+          const initialCache = columns.reduce(
+            (acc: Record<string, null>, col: { id: string }) => ({
+              ...acc,
+              [col.id]: null,
+            }),
+            {},
+          );
+          const cacheJson = JSON.stringify(initialCache);
+
+          // Create row with properly initialized cache
           await tx.$executeRaw`
           INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
-          VALUES (${rowId}, ${input.tableId}, '{}', '', NOW(), NOW())
+          VALUES (${rowId}, ${input.tableId}, ${cacheJson}::jsonb, '', NOW(), NOW())
         `;
 
           // Return the created row
@@ -850,43 +853,39 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify ownership and check for duplicate column name in single query
+      // Verify ownership in single query
       const ownershipResult = await ctx.prisma.$queryRaw<
         Array<{
           tableExists: boolean;
-          duplicateColumn: boolean;
           rowCount: bigint;
         }>
       >`
         SELECT 
           CASE WHEN t.id IS NOT NULL THEN true ELSE false END as "tableExists",
-          CASE WHEN c.id IS NOT NULL THEN true ELSE false END as "duplicateColumn",
           COUNT(r.id) as "rowCount"
         FROM "Table" t
         JOIN "Base" b ON t."baseId" = b.id
-        LEFT JOIN "Column" c ON t.id = c."tableId" AND c.name = ${input.name}
         LEFT JOIN "Row" r ON t.id = r."tableId"
         WHERE t.id = ${input.tableId} AND b."userId" = ${ctx.session.user.id}
-        GROUP BY t.id, c.id
+        GROUP BY t.id
       `;
 
       if (ownershipResult.length === 0) {
         throw new Error("Table not found");
       }
 
-      const { tableExists, duplicateColumn } = ownershipResult[0];
+      const { tableExists } = ownershipResult[0];
 
       if (!tableExists) {
         throw new Error("Table not found");
       }
 
-      if (duplicateColumn) {
-        throw new Error(`Column "${input.name}" already exists in this table`);
-      }
-
       // Use raw SQL for efficient column creation and cell insertion
       const result = await ctx.prisma.$transaction(
         async (tx: any) => {
+          // Lock the table to prevent concurrent row addition
+          await tx.$executeRaw`SELECT * FROM "Table" WHERE id = ${input.tableId} FOR UPDATE`;
+
           // Generate new column ID
           const columnId = createId();
 

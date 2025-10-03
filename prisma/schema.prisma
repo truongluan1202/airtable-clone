@@ -78,6 +78,9 @@ model Base {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tables      Table[]
+
+  @@index([userId])
+  @@index([workspaceId])
 }
 
 model Table {
@@ -91,6 +94,8 @@ model Table {
   rows        Row[]
   base        Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
   views       View[]
+
+  @@index([baseId])
 }
 
 model Column {
@@ -102,8 +107,6 @@ model Column {
   updatedAt DateTime   @updatedAt
   cells     Cell[]
   table     Table      @relation(fields: [tableId], references: [id], onDelete: Cascade)
-
-  @@unique([tableId, name])
 }
 
 model Row {
@@ -115,6 +118,9 @@ model Row {
   updatedAt DateTime @updatedAt
   cells     Cell[]
   table     Table    @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+  @@index([tableId, createdAt, id])
 }
 
 model Cell {
@@ -129,6 +135,8 @@ model Cell {
   row       Row      @relation(fields: [rowId], references: [id], onDelete: Cascade)
 
   @@unique([rowId, columnId])
+  @@index([rowId])
+  @@index([columnId])
 }
 
 model View {

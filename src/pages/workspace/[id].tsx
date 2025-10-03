@@ -30,6 +30,7 @@ export default function WorkspacePage() {
   });
 
   const [showWorkspaceDropdown, setShowWorkspaceDropdown] = useState(false);
+  const [deletingBaseId, setDeletingBaseId] = useState<string | null>(null);
 
   const {
     data: workspace,
@@ -58,9 +59,23 @@ export default function WorkspacePage() {
   });
 
   const deleteBase = api.base.delete.useMutation({
-    onSuccess: () => {
-      void refetchBases();
+    onMutate: async () => {
+      // Close context menu immediately for better UX
       setContextMenu({ visible: false, x: 0, y: 0, baseId: "", baseName: "" });
+      // Mark base as being deleted for optimistic UI update
+      setDeletingBaseId(contextMenu.baseId);
+    },
+    onSuccess: async () => {
+      // Refetch data and add small delay to ensure smooth transition
+      await refetchBases();
+      // Small delay to ensure UI updates before hiding loading overlay
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Clear deleting state
+      setDeletingBaseId(null);
+    },
+    onError: () => {
+      // Clear deleting state on error
+      setDeletingBaseId(null);
     },
   });
 
@@ -269,27 +284,31 @@ export default function WorkspacePage() {
               </div>
             ) : bases && bases.length > 0 ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-2">
-                {bases.map((base: any) => (
-                  <div
-                    key={base.id}
-                    className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md"
-                    onClick={() => router.push(`/base/${base.id}`)}
-                    onContextMenu={(e) => handleContextMenu(e, base)}
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded bg-purple-600 text-white">
-                        {base.name.charAt(0).toUpperCase()}
-                        {base.name.charAt(1).toLowerCase()}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          {base.name}
-                        </h3>
-                        <p className="text-xs text-gray-500">Opened just now</p>
+                {bases
+                  .filter((base: any) => base.id !== deletingBaseId)
+                  .map((base: any) => (
+                    <div
+                      key={base.id}
+                      className="cursor-pointer rounded-lg border border-gray-200 bg-white p-4 transition-shadow hover:shadow-md"
+                      onClick={() => router.push(`/base/${base.id}`)}
+                      onContextMenu={(e) => handleContextMenu(e, base)}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded bg-purple-600 text-white">
+                          {base.name.charAt(0).toUpperCase()}
+                          {base.name.charAt(1).toLowerCase()}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-gray-900">
+                            {base.name}
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            Opened just now
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -456,6 +475,38 @@ export default function WorkspacePage() {
             >
               {deleteBase.isPending ? "Deleting..." : "Delete Base"}
             </button>
+          </div>
+        )}
+
+        {/* Base Deletion Loading Overlay */}
+        {deleteBase.isPending && (
+          <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black">
+            <div className="rounded-lg bg-white p-8 shadow-xl">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                <div className="text-center">
+                  <p className="mt-2 text-sm text-gray-600">
+                    Please wait while we delete the base...
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Workspace Deletion Loading Overlay */}
+        {deleteWorkspace.isPending && (
+          <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black">
+            <div className="rounded-lg bg-white p-8 shadow-xl">
+              <div className="flex flex-col items-center space-y-4">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
+                <div className="text-center">
+                  <p className="mt-2 text-sm text-gray-600">
+                    Please wait while we delete the workspace...
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </AirtableLayout>

@@ -2,46 +2,10 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const workspaceRouter = createTRPCRouter({
-  // Get all workspaces for the current user - Optimized with raw SQL
+  // Get all workspaces for the current user - Simplified for performance
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    // Use raw SQL for better performance with new indexes
-    const workspaces = await ctx.prisma.$queryRaw<
-      Array<{
-        id: string;
-        name: string;
-        description: string | null;
-        userId: string;
-        createdAt: Date;
-        updatedAt: Date;
-        baseCount: bigint;
-        totalTables: bigint;
-        totalRows: bigint;
-        totalColumns: bigint;
-      }>
-    >`
-      SELECT 
-        w.id,
-        w.name,
-        w.description,
-        w."userId",
-        w."createdAt",
-        w."updatedAt",
-        COUNT(DISTINCT b.id) as "baseCount",
-        COUNT(DISTINCT t.id) as "totalTables",
-        COUNT(DISTINCT r.id) as "totalRows",
-        COUNT(DISTINCT c.id) as "totalColumns"
-      FROM "Workspace" w
-      LEFT JOIN "Base" b ON w.id = b."workspaceId"
-      LEFT JOIN "Table" t ON b.id = t."baseId"
-      LEFT JOIN "Row" r ON t.id = r."tableId"
-      LEFT JOIN "Column" c ON t.id = c."tableId"
-      WHERE w."userId" = ${ctx.session.user.id}
-      GROUP BY w.id, w.name, w.description, w."userId", w."createdAt", w."updatedAt"
-      ORDER BY w."createdAt" DESC
-    `;
-
-    // Get bases separately for better performance (only if needed)
-    const bases = await ctx.prisma.base.findMany({
+    // Simple workspace query without expensive aggregations
+    const workspaces = await ctx.prisma.workspace.findMany({
       where: {
         userId: ctx.session.user.id,
       },
@@ -49,86 +13,24 @@ export const workspaceRouter = createTRPCRouter({
         id: true,
         name: true,
         description: true,
-        workspaceId: true,
         userId: true,
         createdAt: true,
         updatedAt: true,
         _count: {
           select: {
-            tables: true,
+            bases: true,
           },
         },
       },
       orderBy: {
-        createdAt: "asc",
+        createdAt: "desc",
       },
     });
 
-    // Get tables separately for better performance (only if needed)
-    const tables = await ctx.prisma.table.findMany({
-      where: {
-        base: {
-          userId: ctx.session.user.id,
-        },
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        baseId: true,
-        createdAt: true,
-        updatedAt: true,
-        _count: {
-          select: {
-            rows: true,
-            columns: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
-    });
-
-    // Group bases by workspaceId for efficient lookup
-    const basesByWorkspaceId = bases.reduce(
-      (acc: Record<string, typeof bases>, base: any) => {
-        acc[base.workspaceId] ??= [];
-        acc[base.workspaceId].push(base);
-        return acc;
-      },
-      {} as Record<string, typeof bases>,
-    );
-
-    // Group tables by baseId for efficient lookup
-    const tablesByBaseId = tables.reduce(
-      (acc: Record<string, typeof tables>, table: any) => {
-        acc[table.baseId] ??= [];
-        acc[table.baseId].push(table);
-        return acc;
-      },
-      {} as Record<string, typeof tables>,
-    );
-
-    // Combine workspaces with their bases and tables
-    return workspaces.map((workspace: any) => ({
-      id: workspace.id,
-      name: workspace.name,
-      description: workspace.description,
-      userId: workspace.userId,
-      createdAt: workspace.createdAt,
-      updatedAt: workspace.updatedAt,
-      bases: (basesByWorkspaceId[workspace.id] ?? []).map((base: any) => ({
-        ...base,
-        tables: tablesByBaseId[base.id] ?? [],
-      })),
-      _count: {
-        bases: Number(workspace.baseCount),
-      },
-    }));
+    return workspaces;
   }),
 
-  // Get a single workspace by ID
+  // Get a single workspace by ID - Simplified for performance
   getById: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
@@ -137,19 +39,30 @@ export const workspaceRouter = createTRPCRouter({
           id: input.id,
           userId: ctx.session.user.id,
         },
-        include: {
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          userId: true,
+          createdAt: true,
+          updatedAt: true,
           bases: {
-            include: {
-              tables: {
-                include: {
-                  columns: true,
-                  _count: {
-                    select: {
-                      rows: true,
-                    },
-                  },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              workspaceId: true,
+              userId: true,
+              createdAt: true,
+              updatedAt: true,
+              _count: {
+                select: {
+                  tables: true,
                 },
               },
+            },
+            orderBy: {
+              createdAt: "asc",
             },
           },
         },

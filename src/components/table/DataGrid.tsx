@@ -160,6 +160,7 @@ export function DataGrid({
     getColumnSortDirection,
     isRowHovered: (rowId: string) => hoveredRowId === rowId,
     isAddingColumn,
+    isAddingRow,
     isDeletingColumn,
     isDataLoading,
   });
@@ -172,6 +173,8 @@ export function DataGrid({
     handleCellSelect,
     handleCellEdit,
     editingCell,
+    isAddingRow,
+    isAddingColumn,
   });
 
   // Create the table instance
