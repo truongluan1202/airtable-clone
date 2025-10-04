@@ -53,10 +53,10 @@ export const authOptions: NextAuthOptions = {
  * @see https://next-auth.js.org/configuration/nextjs
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export const getServerAuthSession = (opts?: { req: any; res: any }) => {
   if (opts) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+     
     return getServerSession(opts.req, opts.res, authOptions);
   }
   return getServerSession(authOptions);

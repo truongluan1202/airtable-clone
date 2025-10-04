@@ -1,9 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { HideFieldsDropdown } from "./HideFieldsModal";
 import { SortDropdown } from "./SortDropdown";
-import { FilterDropdown } from "./FilterModal";
-import type { SortConfig, FilterGroup, Column } from "~/types/table";
+import { FilterModal } from "./FilterModal";
+import type {
+  SortConfig,
+  FilterGroup,
+  Column,
+  TableView,
+  FilterCondition,
+} from "~/types/table";
 
 interface TableNavigationProps {
   children: React.ReactNode;
@@ -17,6 +23,13 @@ interface TableNavigationProps {
   onSortChange?: (sort: SortConfig[]) => void;
   filters?: FilterGroup[];
   onFiltersChange?: (filters: FilterGroup[]) => void;
+  // View-related props
+  views?: TableView[];
+  currentView?: TableView | null;
+  onViewSelect?: (view: TableView) => void;
+  onCreateView?: (name: string) => void;
+  onDeleteView?: (viewId: string) => void;
+  tableId?: string;
 }
 
 export function TableNavigation({
@@ -29,21 +42,47 @@ export function TableNavigation({
   onColumnVisibilityChange,
   sort = [],
   onSortChange,
-  filters = [],
-  onFiltersChange,
+  filters: _filters = [],
+  onFiltersChange: _onFiltersChange,
+  // View-related props
+  views = [],
+  currentView = null,
+  onViewSelect,
+  onCreateView,
+  onDeleteView,
+  tableId: _tableId,
 }: TableNavigationProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [showHideFieldsDropdown, setShowHideFieldsDropdown] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [filters, setFilters] = useState<
+    Array<{
+      id: string;
+      value:
+        | "less_than"
+        | "greater_than"
+        | "equals"
+        | "not_equals"
+        | "contains"
+        | "not_contains"
+        | "is_empty"
+        | "is_not_empty";
+      columnId?: string;
+      inputValue?: string;
+    }>
+  >([]);
+  const [logicOperator, setLogicOperator] = useState<"and" | "or">("and");
+  const [showCreateViewModal, setShowCreateViewModal] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
   const searchRef = useRef<HTMLDivElement>(null);
   const hideFieldsRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       if (
         searchRef.current &&
         !searchRef.current.contains(event.target as Node)
@@ -67,9 +106,44 @@ export function TableNavigation({
       }
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
+    // Fallback for very old browsers without PointerEvent
+    const handleMouseDown = (event: MouseEvent) => {
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(event.target as Node)
+      ) {
+        setShowSearchInput(false);
+      }
+      if (
+        hideFieldsRef.current &&
+        !hideFieldsRef.current.contains(event.target as Node)
+      ) {
+        setShowHideFieldsDropdown(false);
+      }
+      if (sortRef.current && !sortRef.current.contains(event.target as Node)) {
+        setShowSortDropdown(false);
+      }
+      if (
+        filterRef.current &&
+        !filterRef.current.contains(event.target as Node)
+      ) {
+        setShowFilterDropdown(false);
+      }
+    };
+
+    const supportsPointer = "PointerEvent" in window;
+    if (supportsPointer) {
+      document.addEventListener("pointerdown", handlePointerDown);
+    } else {
+      document.addEventListener("mousedown", handleMouseDown);
+    }
+
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      if (supportsPointer) {
+        document.removeEventListener("pointerdown", handlePointerDown);
+      } else {
+        document.removeEventListener("mousedown", handleMouseDown);
+      }
     };
   }, []);
 
@@ -78,11 +152,76 @@ export function TableNavigation({
     (column) => columnVisibility[column.id] === false,
   ).length;
 
-  // Calculate active filter count
-  const activeFilterCount = filters.reduce(
-    (count, group) => count + group.conditions.length,
-    0,
+  // Helper function to get column name by ID
+  const getColumnName = (columnId: string) => {
+    const column = columns.find((col) => col.id === columnId);
+    return column?.name ?? "Unknown Column";
+  };
+
+  // Get active filters (filters with valid column and value)
+  const activeFilters = filters.filter(
+    (filter) =>
+      filter.columnId &&
+      filter.value &&
+      (filter.value === "is_empty" ||
+        filter.value === "is_not_empty" ||
+        (filter.inputValue && filter.inputValue.trim() !== "")),
   );
+
+  // Convert our new filter format to the expected FilterGroup format
+  const convertToFilterGroups = (
+    newFilters: typeof filters,
+    logicOp: "and" | "or",
+  ): FilterGroup[] => {
+    if (newFilters.length === 0) return [];
+
+    // Convert each filter to a FilterCondition
+    const conditions: FilterCondition[] = newFilters
+      .filter((filter) => {
+        // Skip filters with no value or no column
+        if (!filter.value || !filter.columnId) return false;
+
+        // For conditions that need input values, skip if input is empty
+        const needsInput = !["is_empty", "is_not_empty"].includes(filter.value);
+        if (
+          needsInput &&
+          (!filter.inputValue || filter.inputValue.trim() === "")
+        ) {
+          return false;
+        }
+
+        return true;
+      })
+      .map((filter) => ({
+        id: filter.id,
+        columnId: filter.columnId!,
+        operator: filter.value as any, // Our values match the FilterOperator type
+        value: filter.inputValue ?? "",
+      }));
+
+    if (conditions.length === 0) return [];
+
+    // Create a single FilterGroup with all conditions using the selected logic operator
+    return [
+      {
+        id: "filter-group-1",
+        conditions,
+        logicOperator: logicOp,
+      },
+    ];
+  };
+
+  // Handle filter changes from FilterModal
+  const handleFiltersChange = (
+    newFilters: typeof filters,
+    newLogicOperator: "and" | "or",
+  ) => {
+    setFilters(newFilters);
+    setLogicOperator(newLogicOperator);
+  };
+
+  // Convert filters for the DataGrid
+  const filterGroups = convertToFilterGroups(filters, logicOperator);
 
   return (
     <div className="flex h-full flex-col">
@@ -102,7 +241,7 @@ export function TableNavigation({
             />
           </button>
 
-          {/* Grid view with dropdown */}
+          {/* Current view with dropdown */}
           <div className="flex items-center space-x-2">
             <svg
               width="16"
@@ -115,7 +254,9 @@ export function TableNavigation({
                 d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 13.5 2zM2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 .5.5V5H2zM8.5 6H14v3H8.5zm-1 3V6H2v3zM2 10v2.5a.5.5 0 0 0 .5.5h5v-3zm6.5 0H14v2.5a.5.5 0 0 1-.5.5h-5z"
               />
             </svg>
-            <span className="text-sm text-gray-900">Grid view</span>
+            <span className="text-sm text-gray-900">
+              {currentView?.name ?? "Grid view"}
+            </span>
             <Image
               src="/icons/chevron-down.svg"
               alt="Dropdown"
@@ -165,8 +306,8 @@ export function TableNavigation({
             <button
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
               className={`flex items-center space-x-2 rounded-md px-2 py-1.5 text-sm ${
-                activeFilterCount > 0
-                  ? "bg-green-100 hover:bg-green-200"
+                activeFilters.length > 0
+                  ? "bg-green-100 text-green-800 hover:bg-green-200"
                   : "text-gray-500 hover:bg-gray-100"
               }`}
             >
@@ -180,19 +321,22 @@ export function TableNavigation({
                 <path d="M200 136a8 8 0 0 1-8 8H64a8 8 0 0 1 0-16h128a8 8 0 0 1 8 8m32-56H24a8 8 0 0 0 0 16h208a8 8 0 0 0 0-16m-80 96h-48a8 8 0 0 0 0 16h48a8 8 0 0 0 0-16" />
               </svg>
               <span>
-                {activeFilterCount > 0
-                  ? `Filtered by ${activeFilterCount}`
-                  : "Filter"}
+                {activeFilters.length === 0
+                  ? "Filter"
+                  : activeFilters.length === 1
+                    ? `Filter by ${getColumnName(activeFilters[0]!.columnId!)}`
+                    : `Filter by ${activeFilters.length} columns`}
               </span>
             </button>
 
             {showFilterDropdown && (
-              <FilterDropdown
+              <FilterModal
                 isOpen={showFilterDropdown}
                 onClose={() => setShowFilterDropdown(false)}
+                onFiltersChange={handleFiltersChange}
+                initialFilters={filters}
+                initialLogicOperator={logicOperator}
                 columns={columns}
-                filters={filters}
-                onFiltersChange={onFiltersChange ?? (() => undefined)}
               />
             )}
           </div>
@@ -341,8 +485,11 @@ export function TableNavigation({
           className={`${sidebarCollapsed ? "w-0" : "w-64"} flex-shrink-0 border-r border-gray-200 bg-gray-50 transition-all duration-200`}
         >
           <div className="p-4">
-            {/* Create new */}
-            <div className="mb-2 flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100">
+            {/* Create new view */}
+            <div
+              className="mb-2 flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100"
+              onClick={() => setShowCreateViewModal(true)}
+            >
               <Image
                 src="/icons/plus.svg"
                 alt="Create"
@@ -351,7 +498,7 @@ export function TableNavigation({
                 className="text-gray-600"
               />
               {!sidebarCollapsed && (
-                <span className="text-xs text-gray-700">Create new...</span>
+                <span className="text-xs text-gray-700">Create new view</span>
               )}
             </div>
 
@@ -369,29 +516,121 @@ export function TableNavigation({
               )}
             </div>
 
-            {/* Grid view (active) */}
-            <div className="mb-2 flex items-center space-x-3 rounded-md bg-gray-100 p-2">
-              <svg
-                width="16"
-                height="16"
-                fill="#166ee1"
-                shape-rendering="geometricprecision"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 13.5 2zM2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 .5.5V5H2zM8.5 6H14v3H8.5zm-1 3V6H2v3zM2 10v2.5a.5.5 0 0 0 .5.5h5v-3zm6.5 0H14v2.5a.5.5 0 0 1-.5.5h-5z"
-                />
-              </svg>
-              {!sidebarCollapsed && (
-                <span className="text-xs text-gray-900">Grid view</span>
-              )}
+            {/* Views list */}
+            <div className="space-y-1">
+              {views.map((view) => (
+                <div
+                  key={view.id}
+                  className={`group flex items-center justify-between space-x-3 rounded-md p-2 ${
+                    currentView?.id === view.id
+                      ? "bg-gray-100"
+                      : "hover:bg-gray-100"
+                  }`}
+                >
+                  <div
+                    className="flex flex-1 cursor-pointer items-center space-x-3"
+                    onClick={() => onViewSelect?.(view)}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      fill="#166ee1"
+                      shape-rendering="geometricprecision"
+                    >
+                      <path
+                        fill-rule="evenodd"
+                        d="M2.5 2A1.5 1.5 0 0 0 1 3.5v9A1.5 1.5 0 0 0 2.5 14h11a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 13.5 2zM2 3.5a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 .5.5V5H2zM8.5 6H14v3H8.5zm-1 3V6H2v3zM2 10v2.5a.5.5 0 0 0 .5.5h5v-3zm6.5 0H14v2.5a.5.5 0 0 1-.5.5h-5z"
+                      />
+                    </svg>
+                    {!sidebarCollapsed && (
+                      <span className="text-xs text-gray-900">{view.name}</span>
+                    )}
+                  </div>
+                  {!sidebarCollapsed && onDeleteView && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteView(view.id);
+                      }}
+                      className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-200"
+                    >
+                      <svg
+                        width="12"
+                        height="12"
+                        fill="currentColor"
+                        viewBox="0 0 256 256"
+                      >
+                        <path d="M205.66 194.34a8 8 0 0 1-11.32 11.32L128 139.31l-66.34 66.35a8 8 0 0 1-11.32-11.32L116.69 128L50.34 61.66a8 8 0 0 1 11.32-11.32L128 116.69l66.34-66.35a8 8 0 0 1 11.32 11.32L139.31 128Z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         {/* Table Content */}
-        <div className="flex-1 overflow-hidden">{children}</div>
+        <div className="flex-1 overflow-hidden">
+          {React.Children.map(children, (child) => {
+            if (React.isValidElement(child)) {
+              // Clone the child and pass our converted filters
+              return React.cloneElement(child, {
+                filters: filterGroups,
+              } as any);
+            }
+            return child;
+          })}
+        </div>
       </div>
+
+      {/* Create View Modal */}
+      {showCreateViewModal && (
+        <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
+          <div className="w-96 rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">
+              Create New View
+            </h3>
+            <div className="mb-4">
+              <label className="mb-2 block text-sm font-medium text-gray-700">
+                View Name
+              </label>
+              <input
+                type="text"
+                value={newViewName}
+                onChange={(e) => setNewViewName(e.target.value)}
+                placeholder="Enter view name..."
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowCreateViewModal(false);
+                  setNewViewName("");
+                }}
+                className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (newViewName.trim()) {
+                    onCreateView?.(newViewName.trim());
+                    setShowCreateViewModal(false);
+                    setNewViewName("");
+                  }
+                }}
+                disabled={!newViewName.trim()}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-gray-300"
+              >
+                Create View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

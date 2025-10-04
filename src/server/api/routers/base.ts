@@ -153,124 +153,139 @@ export const baseRouter = createTRPCRouter({
         throw new Error("Workspace not found");
       }
 
-      // Create the base with default table
+      // Create the base first (without table for faster response)
       const base = await ctx.prisma.base.create({
         data: {
           name: input.name,
           description: input.description,
           workspaceId: input.workspaceId,
           userId: ctx.session.user.id,
-          tables: {
-            create: {
-              name: "Table 1",
-              description: "Default table",
-              columns: {
-                create: [
-                  {
-                    name: "Name",
-                    type: "TEXT",
-                  },
-                  {
-                    name: "Email",
-                    type: "TEXT",
-                  },
-                  {
-                    name: "Age",
-                    type: "NUMBER",
-                  },
-                ],
-              },
-            },
-          },
-        },
-        include: {
-          tables: {
-            include: {
-              columns: true,
-            },
-          },
         },
       });
 
-      // Add sample data if requested
-      if (input.withSampleData && base.tables.length > 0) {
-        const table = base.tables[0];
-
-        // Create sample rows with optimized bulk insert
-        const sampleRowIds = Array.from({ length: 5 }, () => createId());
-        const sampleRows: Array<{
-          id: string;
-          tableId: string;
-          cache: Record<string, string | number | null>;
-          search: string;
-        }> = [];
-        const cells: Array<{
-          id: string;
-          rowId: string;
-          columnId: string;
-          vText: string | null;
-          vNumber: number | null;
-        }> = [];
-
-        for (let i = 0; i < 5; i++) {
-          const rowId = sampleRowIds[i];
-          const cache: Record<string, string | number | null> = {};
-          const searchTexts: string[] = [];
-
-          for (const column of table.columns) {
-            let value;
-            if (column.type === "TEXT") {
-              if (column.name.toLowerCase().includes("name")) {
-                value = faker.person.firstName();
-              } else if (column.name.toLowerCase().includes("email")) {
-                value = faker.internet.email();
-              } else {
-                value = faker.lorem.word();
-              }
-            } else if (column.type === "NUMBER") {
-              value = faker.number.int({ min: 1, max: 100 });
-            }
-
-            cache[column.id] = value ?? null;
-            if (value) {
-              searchTexts.push(String(value));
-            }
-
-            cells.push({
-              id: createId(),
-              rowId: rowId!,
-              columnId: column.id,
-              vText: column.type === "TEXT" ? (value as string | null) : null,
-              vNumber:
-                column.type === "NUMBER" ? (value as number | null) : null,
+      // Create default table and view asynchronously for better performance
+      if (input.withSampleData) {
+        // Don't await this - let it run in the background
+        void (async () => {
+          try {
+            // Create the default table
+            const table = await ctx.prisma.table.create({
+              data: {
+                name: "Table 1",
+                description: "Default table",
+                baseId: base.id,
+                columns: {
+                  create: [
+                    {
+                      name: "Name",
+                      type: "TEXT",
+                    },
+                    {
+                      name: "Email",
+                      type: "TEXT",
+                    },
+                    {
+                      name: "Age",
+                      type: "NUMBER",
+                    },
+                  ],
+                },
+              },
+              include: {
+                columns: true,
+              },
             });
+
+            // Create default "Grid view" for the table
+            await ctx.prisma.view.create({
+              data: {
+                name: "Grid view",
+                tableId: table.id,
+                filters: null,
+                sort: null,
+                columns: null,
+                search: null,
+              },
+            });
+
+            // Add sample data
+            const sampleRowIds = Array.from({ length: 5 }, () => createId());
+            const sampleRows: Array<{
+              id: string;
+              tableId: string;
+              cache: Record<string, string | number | null>;
+              search: string;
+            }> = [];
+            const cells: Array<{
+              id: string;
+              rowId: string;
+              columnId: string;
+              vText: string | null;
+              vNumber: number | null;
+            }> = [];
+
+            for (let i = 0; i < 5; i++) {
+              const rowId = sampleRowIds[i];
+              const cache: Record<string, string | number | null> = {};
+              const searchTexts: string[] = [];
+
+              for (const column of table.columns) {
+                let value;
+                if (column.type === "TEXT") {
+                  if (column.name.toLowerCase().includes("name")) {
+                    value = faker.person.firstName();
+                  } else if (column.name.toLowerCase().includes("email")) {
+                    value = faker.internet.email();
+                  } else {
+                    value = faker.lorem.word();
+                  }
+                } else if (column.type === "NUMBER") {
+                  value = faker.number.int({ min: 1, max: 100 });
+                }
+
+                cache[column.id] = value ?? null;
+                if (value) {
+                  searchTexts.push(String(value));
+                }
+
+                cells.push({
+                  id: createId(),
+                  rowId: rowId!,
+                  columnId: column.id,
+                  vText:
+                    column.type === "TEXT" ? (value as string | null) : null,
+                  vNumber:
+                    column.type === "NUMBER" ? (value as number | null) : null,
+                });
+              }
+
+              sampleRows.push({
+                id: rowId!,
+                tableId: table.id,
+                cache: cache,
+                search: searchTexts.join(" ").toLowerCase(),
+              });
+            }
+
+            // Bulk insert rows and cells
+            await ctx.prisma.$transaction(async (tx: any) => {
+              await tx.row.createMany({
+                data: sampleRows.map((row) => ({
+                  id: row.id,
+                  tableId: row.tableId,
+                  cache: row.cache,
+                  search: row.search,
+                })),
+              });
+
+              await tx.cell.createMany({
+                data: cells,
+              });
+            });
+          } catch (error) {
+            console.error("Error creating default table:", error);
           }
-
-          sampleRows.push({
-            id: rowId!,
-            tableId: table.id,
-            cache: cache, // Keep as object, no JSON conversion
-            search: searchTexts.join(" ").toLowerCase(),
-          });
-        }
-
-        // Bulk insert rows and cells in a single transaction
-        await ctx.prisma.$transaction(async (tx: any) => {
-          // Insert rows
-          await tx.row.createMany({
-            data: sampleRows.map((row) => ({
-              id: row.id,
-              tableId: row.tableId,
-              cache: row.cache, // Already an object, no parsing needed
-              search: row.search,
-            })),
-          });
-
-          // Insert cells
-          await tx.cell.createMany({
-            data: cells, // IDs already generated, no need to map
-          });
-        });
+        })();
       }
 
       return base;

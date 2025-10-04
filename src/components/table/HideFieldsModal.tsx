@@ -92,14 +92,14 @@ export function HideFieldsDropdown({
       className="absolute top-full right-0 z-50 mt-2 w-80 rounded-lg border border-gray-200 bg-white shadow-xl"
     >
       {/* Search bar */}
-      <div className="mx-5 border-b border-gray-200 py-4">
+      <div className="mx-5 border-b border-gray-200 pt-3 pb-2">
         <div className="relative">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Find a field"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 pr-8 text-xs focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            className="w-full pr-8 text-xs focus:outline-none"
           />
           <div className="absolute inset-y-0 right-0 flex items-center pr-3">
             <button className="text-gray-400 hover:text-gray-600">

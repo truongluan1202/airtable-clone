@@ -119,7 +119,7 @@ export default function Home() {
                 <h1 className="mb-4 text-xl font-bold text-gray-900">
                   Welcome to Airtable
                 </h1>
-                <p className="text-medium mb-8 max-w-md text-gray-600">
+                <p className="mb-8 max-w-md text-lg text-gray-600">
                   Create your first workspace to start organizing your data and
                   collaborating with your team.
                 </p>
@@ -144,7 +144,7 @@ export default function Home() {
                 <h1 className="mb-4 text-xl font-bold text-gray-900">
                   Redirecting...
                 </h1>
-                <p className="text-medium mb-8 max-w-md text-gray-600">
+                <p className="mb-8 max-w-md text-lg text-gray-600">
                   Taking you to your workspace.
                 </p>
                 <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>

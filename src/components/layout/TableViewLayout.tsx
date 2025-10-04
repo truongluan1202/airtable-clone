@@ -336,6 +336,8 @@ export function TableViewLayout({
                   .filter((table) => table.id !== deletingTableId)
                   .map((table) => {
                     const active = table.name === tableName;
+                    const isFirst = table.id === tables[0]?.id;
+
                     return (
                       <button
                         key={table.id}
@@ -344,22 +346,29 @@ export function TableViewLayout({
                           handleTableRightClick(e, table.id, table.name)
                         }
                         className={[
+                          // base
                           "relative inline-flex h-8.5 w-18 items-center justify-center rounded-t-md px-2 pt-1 text-center text-xs transition-colors",
                           active
                             ? [
                                 "border border-gray-300 bg-white p-0 text-gray-900",
                                 "z-20 -mb-px border-b-transparent",
-                                "after:absolute after:right-[-1px] after:left-[-1px] after:content-['']",
-                                "after:bottom-[-1px] after:h-[8px] after:bg-white",
-                                "after:border-r after:border-l after:border-gray-300",
-                                "after:pointer-events-none",
+                                // corner radius: first tab loses top-left corner
+                                isFirst
+                                  ? "rounded-tl-none rounded-tr-md border-l-0"
+                                  : "rounded-t-md",
                               ].join(" ")
-                            : "relative flex items-center text-gray-600 hover:bg-purple-100 hover:text-gray-800",
+                            : [
+                                "relative flex items-center text-gray-600 hover:bg-purple-100 hover:text-gray-800",
+                                isFirst
+                                  ? "rounded-tl-none rounded-tr-md"
+                                  : "rounded-t-md",
+                                "border border-transparent", // keep height consistent
+                              ].join(" "),
                         ].join(" ")}
                       >
                         {table.name}
                         {!active && (
-                          <span className="absolute top-2 right-[-1] bottom-2 w-px bg-gray-300"></span>
+                          <span className="absolute top-2 right-[-2] bottom-2 w-px bg-gray-300"></span>
                         )}
                       </button>
                     );

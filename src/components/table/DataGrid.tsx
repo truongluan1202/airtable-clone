@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { useReactTable, getCoreRowModel } from "@tanstack/react-table";
 import { useDataGridState } from "./hooks/useDataGridState";
 import { useDataGridMutations } from "./hooks/useDataGridMutations";
@@ -46,6 +46,7 @@ export function DataGrid({
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
 
   // Memoize data and columns to ensure stable references
   const stableData = useMemo(() => data, [data]);
@@ -56,6 +57,7 @@ export function DataGrid({
     selectedRows,
     selectedCell,
     editingCell,
+    cellValues,
     showAddColumnDropdown,
     openColumnDropdown,
     contextMenu,
@@ -69,7 +71,6 @@ export function DataGrid({
     handleCellStopEdit,
     toggleRowSelection,
     handleContextMenu,
-    getCellValue,
     isEditing,
   } = useDataGridState();
 
@@ -80,6 +81,11 @@ export function DataGrid({
     handleDeleteRow,
     handleDeleteColumn,
     handleCellUpdate,
+    getCellValue: getCellValueFromMutations,
+    clearOptimisticData,
+    getRowStatus,
+    getCellEditStatus,
+    isRowCreating,
     isAddingColumn,
     isAddingRow,
     isDeletingRow,
@@ -138,18 +144,91 @@ export function DataGrid({
     });
   }, [stableColumns, columnVisibility]);
 
+  // Clear optimistic data when fresh data arrives (e.g., on refresh)
+  useEffect(() => {
+    if (data && data.length > 0) {
+      // Clear optimistic data when we get fresh data from the server
+      clearOptimisticData();
+    }
+  }, [data, clearOptimisticData]);
+
+  // Combined cell value function that checks both sources
+  const combinedGetCellValue = useCallback(
+    (rowId: string, columnId: string, defaultValue = "") => {
+      return getCellValueFromMutations(
+        rowId,
+        columnId,
+        defaultValue,
+        cellValues,
+      );
+    },
+    [getCellValueFromMutations, cellValues],
+  );
+
+  // Enhanced cell stop edit function that includes navigation
+  const handleCellStopEditWithNavigation = useCallback(() => {
+    if (!selectedCell) return;
+
+    // Stop editing first
+    handleCellStopEdit();
+
+    // Move to next cell after a brief delay to allow save to complete
+    setTimeout(() => {
+      const currentRowIndex = filteredData.findIndex(
+        (row) => row.id === selectedCell.rowId,
+      );
+      const currentColumnIndex = visibleColumns.findIndex(
+        (col) => col.id === selectedCell.columnId,
+      );
+
+      if (currentRowIndex === -1 || currentColumnIndex === -1) return;
+
+      const maxRows = filteredData.length;
+      const maxColumns = visibleColumns.length;
+
+      // Move to next cell (right, then down to next row)
+      if (currentColumnIndex < maxColumns - 1) {
+        const nextColumn = visibleColumns[currentColumnIndex + 1];
+        if (nextColumn) {
+          handleCellSelect(selectedCell.rowId, nextColumn.id);
+        }
+      } else if (currentRowIndex < maxRows - 1) {
+        // Move to first column of next row
+        const nextRow = filteredData[currentRowIndex + 1];
+        const firstColumn = visibleColumns[0];
+        if (nextRow && firstColumn) {
+          handleCellSelect(nextRow.id, firstColumn.id);
+        }
+      }
+
+      // Ensure table maintains focus for continued keyboard navigation
+      setTimeout(() => {
+        const tableElement = document.querySelector("[data-table-container]");
+        if (tableElement && "focus" in tableElement) {
+          (tableElement as HTMLElement).focus();
+        }
+      }, 10);
+    }, 50); // Small delay to allow save to complete
+  }, [
+    selectedCell,
+    filteredData,
+    visibleColumns,
+    handleCellStopEdit,
+    handleCellSelect,
+  ]);
+
   // Create table columns using the custom hook
   const tableColumns = TableColumns.useTableColumns({
     visibleColumns,
     selectedRows,
     toggleRowSelection,
-    getCellValue,
+    getCellValue: combinedGetCellValue,
     handleCellUpdate: (rowId: string, columnId: string, value: string) =>
       handleCellUpdate(rowId, columnId, value, stableColumns, setCellValues),
     isEditing,
     handleCellEdit,
     handleCellSelect,
-    handleCellStopEdit,
+    handleCellStopEdit: handleCellStopEditWithNavigation,
     showAddColumnDropdown,
     setShowAddColumnDropdown,
     handleAddColumn,
@@ -160,12 +239,55 @@ export function DataGrid({
     getColumnSortDirection,
     isRowHovered: (rowId: string) => hoveredRowId === rowId,
     isAddingColumn,
-    isAddingRow,
     isDeletingColumn,
     isDataLoading,
   });
 
-  // Keyboard navigation hook
+  // Focus management
+  const focusTable = useCallback(() => {
+    if (tableRef.current) {
+      tableRef.current.focus();
+    }
+  }, []);
+
+  // Handle table focus - only auto-select first cell when focused via keyboard
+  const handleTableFocus = useCallback(() => {
+    if (
+      filteredData.length > 0 &&
+      visibleColumns.length > 0 &&
+      !selectedCell &&
+      isKeyboardFocused
+    ) {
+      // Only select first cell when table is focused via keyboard (Tab)
+      // Not when clicked, as clicks should select the specific cell clicked
+      const firstRow = filteredData[0];
+      const firstColumn = visibleColumns[0];
+      if (firstRow && firstColumn) {
+        handleCellSelect(firstRow.id, firstColumn.id);
+      }
+    }
+    // Reset the keyboard focus flag after handling
+    setIsKeyboardFocused(false);
+  }, [
+    filteredData,
+    visibleColumns,
+    selectedCell,
+    handleCellSelect,
+    isKeyboardFocused,
+  ]);
+
+  // Handle table container click - just focus, don't select any cell
+  const handleTableClick = useCallback(
+    (e: React.MouseEvent) => {
+      // Only focus if the click is on the container itself, not on a cell
+      if (e.target === e.currentTarget) {
+        focusTable();
+      }
+    },
+    [focusTable],
+  );
+
+  // Enhanced keyboard navigation hook
   const { handleKeyDown } = useKeyboardNavigation({
     selectedCell,
     filteredData,
@@ -173,9 +295,17 @@ export function DataGrid({
     handleCellSelect,
     handleCellEdit,
     editingCell,
-    isAddingRow,
-    isAddingColumn,
+    onStopEdit: handleCellStopEditWithNavigation,
+    onKeyboardFocus: () => setIsKeyboardFocused(true),
   });
+
+  // Auto-focus table when it loads and has data
+  useEffect(() => {
+    if (filteredData.length > 0 && !selectedCell) {
+      // Focus the table container to enable keyboard navigation
+      focusTable();
+    }
+  }, [filteredData.length, selectedCell, focusTable]);
 
   // Create the table instance
   const table = useReactTable({
@@ -203,9 +333,15 @@ export function DataGrid({
 
         {/* Virtualized Body - takes remaining space */}
         <div
-          className="relative flex-1 overflow-hidden focus:outline-none"
+          ref={tableRef}
+          data-table-container
+          className="relative flex-1 overflow-hidden focus:ring-2 focus:ring-blue-500 focus:outline-none focus:ring-inset"
           onKeyDown={handleKeyDown}
+          onClick={handleTableClick}
+          onFocus={handleTableFocus}
           tabIndex={0}
+          role="grid"
+          aria-label="Data table"
         >
           <VirtualizedTableBody
             rows={table.getRowModel().rows}
@@ -215,7 +351,7 @@ export function DataGrid({
             isColumnSorted={isColumnSorted}
             isColumnFiltered={isColumnFiltered}
             isCellHighlighted={isCellHighlighted}
-            getCellValue={getCellValue}
+            getCellValue={combinedGetCellValue}
             handleContextMenu={handleContextMenu}
             handleAddRow={() => handleAddRow()}
             visibleColumns={visibleColumns}
@@ -228,6 +364,10 @@ export function DataGrid({
             // Loading states
             isAddingRow={isAddingRow}
             isDataLoading={isDataLoading}
+            // Status functions
+            getRowStatus={getRowStatus}
+            getCellEditStatus={getCellEditStatus}
+            isRowCreating={isRowCreating}
             // Total rows for complete table structure
             totalRows={totalRows}
           />

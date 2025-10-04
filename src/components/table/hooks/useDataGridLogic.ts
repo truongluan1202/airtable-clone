@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from "react";
 import type { DataRow, Column } from "../types";
-import type { SortConfig, FilterGroup } from "~/types/table";
+import type { SortConfig, FilterGroup, FilterCondition } from "~/types/table";
 
 export function useDataGridLogic(
   data: DataRow[],
@@ -63,18 +63,23 @@ export function useDataGridLogic(
     [],
   );
 
-  // Helper function to evaluate a filter group
-  const evaluateFilterGroup = useCallback(
-    (row: DataRow, group: FilterGroup) => {
-      if (group.conditions.length === 0) return true;
+  // Helper function to evaluate all conditions (simplified for single group)
+  const evaluateAllConditions = useCallback(
+    (
+      row: DataRow,
+      conditions: FilterCondition[],
+      logicOperator: "and" | "or",
+    ) => {
+      if (conditions.length === 0) return true;
 
-      const results = group.conditions.map((condition) => {
+      const results = conditions.map((condition) => {
         const column = columns.find((col) => col.id === condition.columnId);
         if (!column) return false;
         return evaluateCondition(row, condition, column);
       });
 
-      return group.logicOperator === "and"
+      // Use the specified logic operator
+      return logicOperator === "and"
         ? results.every((result) => result)
         : results.some((result) => result);
     },
@@ -101,12 +106,16 @@ export function useDataGridLogic(
       });
     }
 
-    // Apply column filters
+    // Apply column filters (simplified for single group)
     if (filters.length > 0) {
-      result = result.filter((row) => {
-        // All filter groups must pass (AND between groups)
-        return filters.every((group) => evaluateFilterGroup(row, group));
-      });
+      // Get all conditions from the single filter group
+      const allConditions = filters[0]?.conditions ?? [];
+      const logicOperator = filters[0]?.logicOperator ?? "and";
+      if (allConditions.length > 0) {
+        result = result.filter((row) => {
+          return evaluateAllConditions(row, allConditions, logicOperator);
+        });
+      }
     }
 
     // Apply sorting
@@ -155,7 +164,7 @@ export function useDataGridLogic(
     }
 
     return result;
-  }, [data, columns, searchQuery, sort, filters, evaluateFilterGroup]);
+  }, [data, columns, searchQuery, sort, filters, evaluateAllConditions]);
 
   // Pre-compute highlighted cells to avoid calling function during render
   const highlightedCells = useMemo(() => {
@@ -207,12 +216,12 @@ export function useDataGridLogic(
     [sort],
   );
 
-  // Check if a column is filtered
+  // Check if a column is filtered (simplified for single group)
   const isColumnFiltered = useCallback(
     (columnId: string) => {
-      return filters.some((group) =>
-        group.conditions.some((condition) => condition.columnId === columnId),
-      );
+      if (filters.length === 0) return false;
+      const allConditions = filters[0]?.conditions ?? [];
+      return allConditions.some((condition) => condition.columnId === columnId);
     },
     [filters],
   );

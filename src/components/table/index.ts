@@ -12,6 +12,7 @@ export { HideFieldsDropdown } from "./HideFieldsModal";
 export { ColumnDropdown } from "./ColumnDropdown";
 export { SortDropdown } from "./SortDropdown";
 export { FilterDropdown } from "./FilterModal";
+export { TableSkeleton } from "./TableSkeleton";
 
 // Export hooks
 export { useStableRowOrder } from "./hooks/useStableRowOrder";

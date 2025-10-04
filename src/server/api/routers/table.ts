@@ -330,6 +330,18 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
+      // Create default "Grid view" for the new table
+      await ctx.prisma.view.create({
+        data: {
+          name: "Grid view",
+          tableId: table.id,
+          filters: null,
+          sort: null,
+          columns: null,
+          search: null,
+        },
+      });
+
       // Add sample data if requested - Optimized approach
       if (input.withSampleData) {
         // Create sample rows with optimized bulk insert
@@ -671,10 +683,8 @@ export const tableRouter = createTRPCRouter({
             FROM "Column" c
             JOIN "Table" t ON c."tableId" = t.id
             JOIN "Base" b ON t."baseId" = b.id
-            JOIN "Row" r ON r.id = ${input.rowId}
             WHERE c.id = ${input.columnId}
               AND b."userId" = ${ctx.session.user.id}
-              AND r."tableId" = c."tableId"
             LIMIT 1
           `;
 
@@ -682,7 +692,21 @@ export const tableRouter = createTRPCRouter({
             throw new Error("Table not found or access denied");
           }
 
-          const { columnType } = authResult[0];
+          const { columnType, tableId } = authResult[0];
+
+          // Ensure the row exists - create it if it doesn't
+          await tx.$executeRaw`
+            INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
+            VALUES (
+              ${input.rowId},
+              ${tableId},
+              '{}'::jsonb,
+              '',
+              NOW(),
+              NOW()
+            )
+            ON CONFLICT (id) DO NOTHING
+          `;
 
           // Upsert cell with proper typing
           const cellResult = await tx.$queryRaw<
@@ -769,7 +793,12 @@ export const tableRouter = createTRPCRouter({
 
   // Add a new row
   addRow: protectedProcedure
-    .input(z.object({ tableId: z.string() }))
+    .input(
+      z.object({
+        tableId: z.string(),
+        rowId: z.string().optional(), // Allow client to provide row ID
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       // Verify ownership first
       const ownershipResult = await ctx.prisma.$queryRaw<
@@ -792,8 +821,8 @@ export const tableRouter = createTRPCRouter({
           // Lock the table to prevent concurrent column addition
           await tx.$executeRaw`SELECT * FROM "Table" WHERE id = ${input.tableId} FOR UPDATE`;
 
-          // Generate new row ID
-          const rowId = createId();
+          // Use provided row ID or generate new one
+          const rowId = input.rowId ?? createId();
 
           // Get all current columns to initialize cache properly
           const columns = await tx.$queryRaw<Array<{ id: string }>>`
@@ -810,10 +839,11 @@ export const tableRouter = createTRPCRouter({
           );
           const cacheJson = JSON.stringify(initialCache);
 
-          // Create row with properly initialized cache
+          // Create row with properly initialized cache (idempotent)
           await tx.$executeRaw`
           INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
           VALUES (${rowId}, ${input.tableId}, ${cacheJson}::jsonb, '', NOW(), NOW())
+          ON CONFLICT (id) DO NOTHING
         `;
 
           // Return the created row
@@ -850,6 +880,7 @@ export const tableRouter = createTRPCRouter({
         tableId: z.string(),
         name: z.string().min(1).max(100),
         type: z.enum(["TEXT", "NUMBER"]),
+        columnId: z.string().optional(), // Allow client to provide column ID
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -886,13 +917,14 @@ export const tableRouter = createTRPCRouter({
           // Lock the table to prevent concurrent row addition
           await tx.$executeRaw`SELECT * FROM "Table" WHERE id = ${input.tableId} FOR UPDATE`;
 
-          // Generate new column ID
-          const columnId = createId();
+          // Use provided column ID or generate new one
+          const columnId = input.columnId ?? createId();
 
-          // Create column with raw SQL
+          // Create column with raw SQL (idempotent)
           await tx.$executeRaw`
           INSERT INTO "Column" (id, name, type, "tableId", "createdAt", "updatedAt")
           VALUES (${columnId}, ${input.name}, ${input.type}::"ColumnType", ${input.tableId}, NOW(), NOW())
+          ON CONFLICT (id) DO NOTHING
         `;
 
           // Lazy cell creation: Don't create cells upfront for large tables
@@ -1067,6 +1099,144 @@ export const tableRouter = createTRPCRouter({
       if (deleteResult === 0) {
         throw new Error("Column not found or access denied");
       }
+
+      return { success: true };
+    }),
+
+  // View-related endpoints
+  // Get all views for a table
+  getViews: protectedProcedure
+    .input(z.object({ tableId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      // Verify table ownership
+      const table = await ctx.prisma.table.findFirst({
+        where: {
+          id: input.tableId,
+          base: {
+            userId: ctx.session.user.id,
+          },
+        },
+      });
+
+      if (!table) {
+        throw new Error("Table not found");
+      }
+
+      const views = await ctx.prisma.view.findMany({
+        where: {
+          tableId: input.tableId,
+        },
+        orderBy: {
+          createdAt: "asc",
+        },
+      });
+
+      return views;
+    }),
+
+  // Create a new view
+  createView: protectedProcedure
+    .input(
+      z.object({
+        tableId: z.string(),
+        name: z.string().min(1).max(100),
+        filters: z.any().optional(),
+        sort: z.any().optional(),
+        columns: z.any().optional(),
+        search: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify table ownership
+      const table = await ctx.prisma.table.findFirst({
+        where: {
+          id: input.tableId,
+          base: {
+            userId: ctx.session.user.id,
+          },
+        },
+      });
+
+      if (!table) {
+        throw new Error("Table not found");
+      }
+
+      const view = await ctx.prisma.view.create({
+        data: {
+          name: input.name,
+          tableId: input.tableId,
+          filters: input.filters,
+          sort: input.sort,
+          columns: input.columns,
+          search: input.search,
+        },
+      });
+
+      return view;
+    }),
+
+  // Update a view
+  updateView: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).max(100).optional(),
+        filters: z.any().optional(),
+        sort: z.any().optional(),
+        columns: z.any().optional(),
+        search: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...updateData } = input;
+
+      // Verify view ownership through table
+      const view = await ctx.prisma.view.findFirst({
+        where: {
+          id,
+          table: {
+            base: {
+              userId: ctx.session.user.id,
+            },
+          },
+        },
+      });
+
+      if (!view) {
+        throw new Error("View not found");
+      }
+
+      const updatedView = await ctx.prisma.view.update({
+        where: { id },
+        data: updateData,
+      });
+
+      return updatedView;
+    }),
+
+  // Delete a view
+  deleteView: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Verify view ownership through table
+      const view = await ctx.prisma.view.findFirst({
+        where: {
+          id: input.id,
+          table: {
+            base: {
+              userId: ctx.session.user.id,
+            },
+          },
+        },
+      });
+
+      if (!view) {
+        throw new Error("View not found");
+      }
+
+      await ctx.prisma.view.delete({
+        where: { id: input.id },
+      });
 
       return { success: true };
     }),

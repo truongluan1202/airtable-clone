@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { api } from "~/utils/api";
+import { createId } from "@paralleldrive/cuid2";
 import type { Column } from "../types";
 
 export function useDataGridMutations(tableId?: string, isDataLoading = false) {
@@ -11,15 +12,49 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
   const [isDeletingRowLoading, setIsDeletingRowLoading] = useState(false);
   const [isDeletingColumnLoading, setIsDeletingColumnLoading] = useState(false);
 
+  // Track pending edits for optimistic data
+  const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
+
+  // Track row statuses (creating, saving, etc.)
+  const [rowStatuses, setRowStatuses] = useState<
+    Record<string, "creating" | "saving" | "saved">
+  >({});
+
+  // Track cell edit statuses for per-cell spinners
+  const [cellEditStatuses, setCellEditStatuses] = useState<
+    Record<string, "saving" | "saved">
+  >({});
+
+  // Track column statuses (creating, synced)
+  const [columnStatuses, setColumnStatuses] = useState<
+    Record<string, "creating" | "synced">
+  >({});
+
   // Note: Loading states are now cleared using timeouts in the mutation success handlers
   // This provides better UX by keeping loading visible until user can see the result
 
   const updateCellMutation = api.table.updateCell.useMutation({
-    onSuccess: (_data) => {
+    onSuccess: (_data, variables) => {
+      const cellKey = `${variables.rowId}-${variables.columnId}`;
+
+      // Mark cell as saved
+      setCellEditStatuses((prev) => ({
+        ...prev,
+        [cellKey]: "saved",
+      }));
+
       void utils.table.getByIdPaginated.invalidate();
     },
-    onError: (error) => {
+    onError: (error, variables) => {
       console.error("❌ Failed to update cell:", error);
+
+      const cellKey = `${variables.rowId}-${variables.columnId}`;
+
+      // Mark cell as saved (even on error, to stop spinner)
+      setCellEditStatuses((prev) => ({
+        ...prev,
+        [cellKey]: "saved",
+      }));
     },
   });
 
@@ -33,19 +68,28 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
       // Snapshot previous values
       const previousData = utils.table.getByIdPaginated.getInfiniteData();
 
+      // Generate proper client-assigned column ID using cuid2
+      const clientColumnId = variables.columnId ?? createId();
+
+      // Mark column as creating
+      setColumnStatuses((prev) => ({
+        ...prev,
+        [clientColumnId]: "creating",
+      }));
+
+      // Create optimistic column data with client-assigned ID
+      const optimisticColumn = {
+        id: clientColumnId,
+        name: variables.name,
+        type: variables.type,
+        createdAt: new Date(),
+      };
+
       // Optimistically add the new column to the table structure
       utils.table.getByIdPaginated.setInfiniteData(
         { id: variables.tableId, limit: 500 },
         (oldData) => {
           if (!oldData) return oldData;
-
-          // Create optimistic column data
-          const optimisticColumn = {
-            id: `temp-col-${Date.now()}`,
-            name: variables.name,
-            type: variables.type,
-            createdAt: new Date(),
-          };
 
           const newPages = oldData.pages.map((page) => ({
             ...page,
@@ -53,14 +97,8 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
               ...page.table,
               columns: [...page.table.columns, optimisticColumn],
             },
-            // Add empty data for the new column to all existing rows
-            rows: page.rows.map((row: any) => ({
-              ...row,
-              data: {
-                ...row.data,
-                [optimisticColumn.id]: null, // Add empty value for new column
-              },
-            })),
+            // Note: We don't add empty data for new column - using sparse cells approach
+            // Missing cells will be treated as null in the UI
           }));
 
           return {
@@ -71,50 +109,46 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
       );
 
       // Return context for rollback
-      return { previousData };
+      return { previousData, clientColumnId };
     },
-    onSuccess: (data) => {
-      // Update the optimistic data with the real column ID
-      utils.table.getByIdPaginated.setInfiniteData(
-        { id: data.tableId, limit: 500 },
-        (oldData) => {
-          if (!oldData) return oldData;
+    onSuccess: (data, variables, context) => {
+      // Get the client column ID from context
+      const clientColumnId = context?.clientColumnId;
 
-          const newPages = oldData.pages.map((page) => ({
-            ...page,
-            table: {
-              ...page.table,
-              columns: page.table.columns.map((col: any) =>
-                col.id.startsWith("temp-col-") ? data : col,
-              ),
-            },
-            // Update row data to use real column ID
-            rows: page.rows.map((row: any) => {
-              const newData = { ...row.data };
-              // Remove temp column data and add real column data
-              Object.keys(newData).forEach((key) => {
-                if (key.startsWith("temp-col-")) {
-                  delete newData[key];
-                }
-              });
-              newData[data.id] = null;
+      if (clientColumnId && data) {
+        // Mark column as synced (no longer creating)
+        setColumnStatuses((prev) => ({
+          ...prev,
+          [clientColumnId]: "synced",
+        }));
 
-              return {
-                ...row,
-                data: newData,
-              };
-            }),
-          }));
+        // Flush any buffered edits for this column
+        const editsToApply: Array<{ rowId: string; value: string }> = [];
+        Object.entries(pendingEdits).forEach(([cellKey, value]) => {
+          const [rowId, columnId] = cellKey.split("-", 2);
+          if (columnId === clientColumnId && rowId) {
+            editsToApply.push({ rowId, value });
+          }
+        });
 
-          return {
-            ...oldData,
-            pages: newPages,
-          };
-        },
-      );
+        // Apply buffered edits to the database using the client column ID
+        editsToApply.forEach(({ rowId, value }) => {
+          // Only apply if the row is not optimistic (temp-row-*)
+          if (!rowId.startsWith("temp-row-")) {
+            updateCellMutation.mutate({
+              rowId,
+              columnId: clientColumnId, // Use client column ID consistently
+              value,
+            });
+          }
+        });
 
-      // Invalidate to ensure consistency and get real data
-      void utils.table.getByIdPaginated.invalidate();
+        // Invalidate only the first page to pull canonical data
+        void utils.table.getByIdPaginated.invalidate({
+          id: variables.tableId,
+          limit: 500,
+        });
+      }
 
       // Keep loading state visible for a bit longer so user can see the new column
       setTimeout(() => {
@@ -125,7 +159,7 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
       console.error("❌ Failed to add column:", error);
       setIsAddingColumnLoading(false);
 
-      // Rollback optimistic updates
+      // Remove the optimistic column and show error
       if (context?.previousData) {
         utils.table.getByIdPaginated.setInfiniteData(
           { id: variables.tableId, limit: 500 },
@@ -133,9 +167,28 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         );
       }
 
-      // Show user-friendly error message
-      const errorMessage = error.message || "Failed to add column";
-      alert(`Error: ${errorMessage}`);
+      // Clear column status and pending edits
+      if (context?.clientColumnId) {
+        setColumnStatuses((prev) => {
+          const newStatuses = { ...prev };
+          delete newStatuses[context.clientColumnId];
+          return newStatuses;
+        });
+
+        // Clear pending edits for this column
+        setPendingEdits((prev) => {
+          const newEdits = { ...prev };
+          Object.keys(newEdits).forEach((cellKey) => {
+            const [, columnId] = cellKey.split("-", 2);
+            if (columnId === context.clientColumnId) {
+              delete newEdits[cellKey];
+            }
+          });
+          return newEdits;
+        });
+      }
+
+      // TODO: Show toast notification for error
     },
   });
 
@@ -153,6 +206,15 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         id: variables.tableId,
       });
 
+      // Generate proper client-assigned ID using cuid2
+      const clientRowId = variables.rowId ?? createId();
+
+      // Mark row as creating
+      setRowStatuses((prev) => ({
+        ...prev,
+        [clientRowId]: "creating",
+      }));
+
       // Optimistically update row count
       utils.table.getRowCount.setData({ id: variables.tableId }, (oldData) => {
         if (!oldData) return oldData;
@@ -162,10 +224,9 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         };
       });
 
-      // Optimistically add the new row to the data
-      const optimisticRowId = `temp-row-${Date.now()}`;
+      // Optimistically add the new row to the data with client-generated ID
       const optimisticRow = {
-        id: optimisticRowId,
+        id: clientRowId,
         createdAt: new Date(),
         data: {} as Record<string, string | number | null>,
       };
@@ -195,36 +256,46 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
       );
 
       // Return context with the previous data for rollback
-      return { previousData, previousRowCount };
+      return { previousData, previousRowCount, clientRowId };
     },
-    onSuccess: (data, variables) => {
-      // Replace the optimistic row with the real row data
-      utils.table.getByIdPaginated.setInfiniteData(
-        { id: variables.tableId, limit: 500 },
-        (oldData) => {
-          if (!oldData) return oldData;
+    onSuccess: (data, variables, context) => {
+      // Get the client row ID from context
+      const clientRowId = context?.clientRowId;
 
-          const newPages = oldData.pages.map((page) => ({
-            ...page,
-            rows: page.rows.map((row: any) => {
-              // Replace optimistic row with real data
-              if (row.id.startsWith("temp-row-")) {
-                return {
-                  id: data.id,
-                  createdAt: data.createdAt,
-                  data: {} as Record<string, string | number | null>, // Empty data for new row
-                };
-              }
-              return row;
-            }),
-          }));
+      if (clientRowId && data) {
+        // Mark row as synced (no longer creating)
+        setRowStatuses((prev) => ({
+          ...prev,
+          [clientRowId]: "saved",
+        }));
 
-          return {
-            ...oldData,
-            pages: newPages,
-          };
-        },
-      );
+        // Flush any buffered edits for this row
+        const editsToApply: Array<{ columnId: string; value: string }> = [];
+        Object.entries(pendingEdits).forEach(([cellKey, value]) => {
+          const [rowId, columnId] = cellKey.split("-", 2);
+          if (rowId === clientRowId && columnId) {
+            editsToApply.push({ columnId, value });
+          }
+        });
+
+        // Apply buffered edits to the database using the client ID
+        editsToApply.forEach(({ columnId, value }) => {
+          // Only apply if the column is not optimistic (temp-col-*)
+          if (!columnId.startsWith("temp-col-")) {
+            updateCellMutation.mutate({
+              rowId: clientRowId, // Use client ID, not server ID
+              columnId,
+              value,
+            });
+          }
+        });
+
+        // Invalidate only the first page to pull canonical data
+        void utils.table.getByIdPaginated.invalidate({
+          id: variables.tableId,
+          limit: 500,
+        });
+      }
 
       // Keep loading state visible for a bit longer so user can see the new row
       setTimeout(() => {
@@ -235,7 +306,7 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
       console.error("❌ Failed to add row:", error);
       setIsAddingRowLoading(false);
 
-      // Rollback the optimistic updates
+      // Remove the optimistic row and show error
       if (context?.previousData) {
         utils.table.getByIdPaginated.setInfiniteData(
           { id: variables.tableId, limit: 500 },
@@ -248,6 +319,29 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
           context.previousRowCount,
         );
       }
+
+      // Clear row status and pending edits
+      if (context?.clientRowId) {
+        setRowStatuses((prev) => {
+          const newStatuses = { ...prev };
+          delete newStatuses[context.clientRowId];
+          return newStatuses;
+        });
+
+        // Clear pending edits for this row
+        setPendingEdits((prev) => {
+          const newEdits = { ...prev };
+          Object.keys(newEdits).forEach((cellKey) => {
+            const [rowId] = cellKey.split("-", 2);
+            if (rowId === context.clientRowId) {
+              delete newEdits[cellKey];
+            }
+          });
+          return newEdits;
+        });
+      }
+
+      // TODO: Show toast notification for error
     },
   });
 
@@ -401,10 +495,14 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         return;
       }
 
+      // Generate proper client-assigned column ID using cuid2
+      const clientColumnId = createId();
+
       addColumnMutation.mutate({
         tableId,
         name,
         type,
+        columnId: clientColumnId, // Pass the client-generated column ID
       });
     },
     [addColumnMutation, tableId],
@@ -415,8 +513,13 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
       console.error("Table ID is required to add a row");
       return;
     }
+
+    // Generate proper client-assigned ID using cuid2
+    const clientRowId = createId();
+
     addRowMutation.mutate({
       tableId,
+      rowId: clientRowId, // Pass the client-generated ID
     });
   }, [addRowMutation, tableId]);
 
@@ -456,6 +559,32 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         [cellKey]: value,
       }));
 
+      // Mark cell as saving
+      setCellEditStatuses((prev) => ({
+        ...prev,
+        [cellKey]: "saving",
+      }));
+
+      // Check if this is optimistic data (temp-row-* or temp-col-*)
+      const isOptimisticRow = rowId.startsWith("temp-row-");
+      const isOptimisticColumn = columnId.startsWith("temp-col-");
+
+      if (isOptimisticRow || isOptimisticColumn) {
+        // Store the edit for later application when optimistic data becomes real
+        setPendingEdits((prev) => ({
+          ...prev,
+          [cellKey]: value,
+        }));
+
+        // Mark cell as saved since it's just pending
+        setCellEditStatuses((prev) => ({
+          ...prev,
+          [cellKey]: "saved",
+        }));
+
+        return; // Don't try to update the database yet
+      }
+
       // Find the column to determine its type
       const column = columns.find((col) => col.id === columnId);
       const columnType = column?.type;
@@ -479,12 +608,89 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
     [updateCellMutation],
   );
 
+  // Combined cell value function that checks both cellValues and pendingEdits
+  const getCellValue = useCallback(
+    (
+      rowId: string,
+      columnId: string,
+      defaultValue = "",
+      cellValues: Record<string, string> = {},
+    ) => {
+      const cellKey = `${rowId}-${columnId}`;
+
+      // First check pendingEdits (for optimistic data)
+      if (pendingEdits[cellKey] !== undefined) {
+        return pendingEdits[cellKey];
+      }
+
+      // Then check regular cellValues
+      return cellValues[cellKey] ?? defaultValue;
+    },
+    [pendingEdits],
+  );
+
+  // Function to clear optimistic data (call on refresh or when syncing)
+  const clearOptimisticData = useCallback(() => {
+    setPendingEdits({});
+    setRowStatuses({});
+    setCellEditStatuses({});
+    setColumnStatuses({});
+  }, []);
+
+  // Function to get row status
+  const getRowStatus = useCallback(
+    (rowId: string) => {
+      return rowStatuses[rowId] ?? "saved";
+    },
+    [rowStatuses],
+  );
+
+  // Function to get cell edit status
+  const getCellEditStatus = useCallback(
+    (rowId: string, columnId: string) => {
+      const cellKey = `${rowId}-${columnId}`;
+      return cellEditStatuses[cellKey] ?? "saved";
+    },
+    [cellEditStatuses],
+  );
+
+  // Function to check if row is in creating state (for disabling destructive actions)
+  const isRowCreating = useCallback(
+    (rowId: string) => {
+      return rowStatuses[rowId] === "creating";
+    },
+    [rowStatuses],
+  );
+
+  // Function to get column status
+  const getColumnStatus = useCallback(
+    (columnId: string) => {
+      return columnStatuses[columnId] ?? "synced";
+    },
+    [columnStatuses],
+  );
+
+  // Function to check if column is in creating state (for disabling destructive actions)
+  const isColumnCreating = useCallback(
+    (columnId: string) => {
+      return columnStatuses[columnId] === "creating";
+    },
+    [columnStatuses],
+  );
+
   return {
     handleAddColumn,
     handleAddRow,
     handleDeleteRow,
     handleDeleteColumn,
     handleCellUpdate,
+    getCellValue, // Expose the combined cell value function
+    clearOptimisticData, // Expose function to clear optimistic data
+    getRowStatus, // Expose function to get row status
+    getCellEditStatus, // Expose function to get cell edit status
+    isRowCreating, // Expose function to check if row is creating
+    getColumnStatus, // Expose function to get column status
+    isColumnCreating, // Expose function to check if column is creating
     updateCellMutation,
     addColumnMutation,
     addRowMutation,

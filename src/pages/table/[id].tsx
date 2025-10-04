@@ -6,13 +6,12 @@ import { api } from "~/utils/api";
 import { DataGrid } from "~/components/table/DataGrid";
 import { TableNavigation } from "~/components/table/TableNavigation";
 import { TableViewLayout } from "~/components/layout";
-import type { SortConfig, FilterGroup } from "~/types/table";
+import type { SortConfig, FilterGroup, TableView } from "~/types/table";
 
 export default function TableDetail() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const { id } = router.query;
-  const [showAddDataModal, setShowAddDataModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [columnVisibility, setColumnVisibility] = useState<
     Record<string, boolean>
@@ -22,6 +21,8 @@ export default function TableDetail() {
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   const [bulkLoadingMessage, setBulkLoadingMessage] =
     useState("Adding rows...");
+  // View-related state
+  const [currentView, setCurrentView] = useState<TableView | null>(null);
 
   // Get total row count for complete table structure
   const { data: rowCountData } = api.table.getRowCount.useQuery(
@@ -125,6 +126,47 @@ export default function TableDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns]); // Removed columnVisibility from dependencies to prevent infinite loop
 
+  // Update current view when filters, sort, or column visibility changes
+  const updateView = api.table.updateView.useMutation({
+    onSuccess: async () => {
+      await refetchViews();
+    },
+    onError: (error) => {
+      console.error("❌ Error updating view:", error);
+    },
+  });
+
+  useEffect(() => {
+    if (currentView && table?.id) {
+      // Debounce the update to avoid too many API calls
+      const timeoutId = setTimeout(() => {
+        updateView.mutate({
+          id: currentView.id,
+          filters,
+          sort,
+          columns: Object.entries(columnVisibility).map(
+            ([columnId, visible], index) => ({
+              columnId,
+              visible,
+              order: index,
+            }),
+          ),
+          search: searchQuery,
+        });
+      }, 1000);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [
+    filters,
+    sort,
+    columnVisibility,
+    searchQuery,
+    currentView,
+    table?.id,
+    updateView,
+  ]);
+
   // Fetch all tables for the base
   const {
     data: baseTables,
@@ -135,23 +177,24 @@ export default function TableDetail() {
     { enabled: !!table?.baseId && !!table },
   );
 
-  const addSampleData = api.table.addSampleData.useMutation({
-    onMutate: async (variables) => {
-      setIsBulkLoading(true);
-      setBulkLoadingMessage(`Adding ${variables.count ?? 0} sample rows...`);
-    },
-    onSuccess: async (_data) => {
-      setShowAddDataModal(false);
-      setIsBulkLoading(false);
+  // Fetch views for the current table
+  const {
+    data: views,
+    isLoading: viewsLoading,
+    refetch: refetchViews,
+  } = api.table.getViews.useQuery({ tableId: id as string }, { enabled: !!id });
 
-      // Simple page refresh - no need for complex cache management
-      window.location.reload();
-    },
-    onError: (error) => {
-      console.error("❌ Error adding sample data:", error);
-      setIsBulkLoading(false);
-    },
-  });
+  // Auto-select the first view (default "Grid view") when views are loaded
+  useEffect(() => {
+    if (views && views.length > 0 && !currentView) {
+      setCurrentView(views[0]);
+    }
+  }, [views, currentView]);
+
+  // Reset current view when table changes
+  useEffect(() => {
+    setCurrentView(null);
+  }, [id]);
 
   const addTestRows = api.table.addSampleData.useMutation({
     onMutate: async (variables) => {
@@ -170,6 +213,29 @@ export default function TableDetail() {
     },
   });
 
+  // View mutations
+  const createView = api.table.createView.useMutation({
+    onSuccess: async () => {
+      await refetchViews();
+    },
+    onError: (error) => {
+      console.error("❌ Error creating view:", error);
+    },
+  });
+
+  const deleteView = api.table.deleteView.useMutation({
+    onSuccess: async () => {
+      await refetchViews();
+      // If we deleted the current view, clear it
+      if (currentView) {
+        setCurrentView(null);
+      }
+    },
+    onError: (error) => {
+      console.error("❌ Error deleting view:", error);
+    },
+  });
+
   useEffect(() => {
     if (status === "loading") return;
     if (!session) {
@@ -177,7 +243,7 @@ export default function TableDetail() {
     }
   }, [session, status, router]);
 
-  if (status === "loading" || tableLoading || tablesLoading) {
+  if (status === "loading" || tableLoading || tablesLoading || viewsLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white">
         <div className="text-center">
@@ -232,6 +298,53 @@ export default function TableDetail() {
   const handleTableCreated = async () => {
     // Refetch tables to update the list
     await refetchTables();
+  };
+
+  // View management functions
+  const handleViewSelect = (view: TableView) => {
+    setCurrentView(view);
+    // Apply view settings to current state
+    if (view.filters) {
+      setFilters(view.filters as unknown as FilterGroup[]);
+    }
+    if (view.sort) {
+      setSort(view.sort as unknown as SortConfig[]);
+    }
+    if (view.columns) {
+      const visibility: Record<string, boolean> = {};
+      (view.columns as unknown as any[]).forEach((col: any) => {
+        visibility[col.columnId] = col.visible;
+      });
+      setColumnVisibility(visibility);
+    }
+    if (view.search) {
+      setSearchQuery(view.search);
+    }
+  };
+
+  const handleCreateView = (name: string) => {
+    if (name.trim() && table?.id) {
+      createView.mutate({
+        tableId: table.id,
+        name: name.trim(),
+        filters,
+        sort,
+        columns: Object.entries(columnVisibility).map(
+          ([columnId, visible], index) => ({
+            columnId,
+            visible,
+            order: index,
+          }),
+        ),
+        search: searchQuery,
+      });
+    }
+  };
+
+  const handleDeleteView = (viewId: string) => {
+    if (confirm("Are you sure you want to delete this view?")) {
+      deleteView.mutate({ id: viewId });
+    }
   };
 
   return (
@@ -289,6 +402,12 @@ export default function TableDetail() {
             onSortChange={setSort}
             filters={filters}
             onFiltersChange={setFilters}
+            views={views ?? []}
+            currentView={currentView}
+            onViewSelect={handleViewSelect}
+            onCreateView={handleCreateView}
+            onDeleteView={handleDeleteView}
+            tableId={table?.id}
           >
             <DataGrid
               data={gridData}
@@ -304,7 +423,6 @@ export default function TableDetail() {
                 }));
               }}
               sort={sort}
-              filters={filters}
               enableVirtualization={true}
               // Infinite scroll props
               hasNextPage={hasNextPage}

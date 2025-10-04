@@ -54,22 +54,26 @@ export const EditableCell = memo(function EditableCell({
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter") {
+        e.preventDefault();
         onUpdate(editValue);
+        // Simply stop editing, don't move to next cell
         onStopEdit();
       } else if (e.key === "Escape") {
+        e.preventDefault();
         setEditValue(value);
         onStopEdit();
+      } else if (e.key === "Tab") {
+        // Let the parent handle Tab navigation
+        // Don't prevent default or stop propagation
+        // The parent will handle saving and navigation
       } else if (
-        e.key === "Tab" ||
         e.key === "ArrowUp" ||
         e.key === "ArrowDown" ||
         e.key === "ArrowLeft" ||
-        e.key === "ArrowRight" ||
-        e.key === "Shift + Tab"
+        e.key === "ArrowRight"
       ) {
-        // prevent default behavior
-        e.preventDefault();
-        e.stopPropagation();
+        // Allow arrow keys to work normally within the input
+        // Don't prevent default - let user navigate within the text
       }
     },
     [editValue, onUpdate, onStopEdit, value],

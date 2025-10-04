@@ -23,6 +23,7 @@ interface VirtualizedTableBodyProps {
   ) => string;
   handleContextMenu: (e: React.MouseEvent, rowId: string) => void;
   handleAddRow: () => void;
+  handleCellClick?: (rowId: string, columnId: string) => void;
   visibleColumns: Column[];
   // Infinite scroll props
   hasNextPage?: boolean;
@@ -33,6 +34,10 @@ interface VirtualizedTableBodyProps {
   // Loading states
   isAddingRow?: boolean;
   isDataLoading?: boolean;
+  // Status functions
+  getRowStatus?: (rowId: string) => "creating" | "saving" | "saved";
+  getCellEditStatus?: (rowId: string, columnId: string) => "saving" | "saved";
+  isRowCreating?: (rowId: string) => boolean;
   // Total rows for complete table structure
   totalRows?: number;
 }
@@ -48,6 +53,7 @@ export function VirtualizedTableBody({
   getCellValue,
   handleContextMenu,
   handleAddRow,
+  handleCellClick,
   visibleColumns: _visibleColumns,
   hasNextPage,
   fetchNextPage,
@@ -55,6 +61,9 @@ export function VirtualizedTableBody({
   onRowHover,
   isAddingRow = false,
   isDataLoading = false,
+  getRowStatus,
+  getCellEditStatus,
+  isRowCreating,
   totalRows = 0,
 }: VirtualizedTableBodyProps) {
   const parentRef = useRef<HTMLDivElement>(null);
