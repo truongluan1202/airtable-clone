@@ -505,7 +505,7 @@ export function FilterModal({
                                     </div>
 
                                     {/* Column name */}
-                                    <span className="flex-1 text-sm text-gray-900">
+                                    <span className="flex-1 truncate text-sm text-gray-900">
                                       {column.name}
                                     </span>
                                   </div>
@@ -526,7 +526,7 @@ export function FilterModal({
                           className="flex w-30 cursor-pointer items-center justify-between rounded-none border border-l-0 border-gray-300 bg-white py-2 pr-2 pl-3 text-xs text-gray-700 hover:bg-gray-50"
                           onClick={() => toggleOperatorDropdown(filter.id)}
                         >
-                          <span>
+                          <span className="truncate">
                             {filterOptions.find(
                               (option) => option.value === filter.value,
                             )?.label ?? "Select operator"}
