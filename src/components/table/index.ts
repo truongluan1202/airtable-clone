@@ -11,7 +11,7 @@ export { AddColumnDropdown } from "./AddColumnDropdown";
 export { HideFieldsDropdown } from "./HideFieldsModal";
 export { ColumnDropdown } from "./ColumnDropdown";
 export { SortDropdown } from "./SortDropdown";
-export { FilterDropdown } from "./FilterModal";
+export { FilterModal } from "./FilterModal";
 export { TableSkeleton } from "./TableSkeleton";
 
 // Export hooks
