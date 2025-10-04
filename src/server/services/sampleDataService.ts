@@ -159,17 +159,20 @@ export class SampleDataService {
       try {
         // Drop Cell table indexes temporarily (major performance bottleneck)
         // Only for large datasets where the overhead is worth it
+        // Query for actual indexes, not constraints
         const cellIndexes = await indexClient.query(`
-          SELECT indexname FROM pg_indexes 
-          WHERE tablename = 'Cell' AND schemaname = 'public'
+          SELECT i.indexname 
+          FROM pg_indexes i
+          LEFT JOIN pg_constraint c ON c.conname = i.indexname
+          WHERE i.tablename = 'Cell' 
+            AND i.schemaname = 'public'
+            AND c.conname IS NULL  -- Exclude constraints
+            AND i.indexname != 'Cell_rowId_columnId_key'  -- Explicitly exclude unique constraint
         `);
 
         for (const idx of cellIndexes.rows) {
-          if (
-            idx.indexname !== "Cell_pkey" &&
-            idx.indexname !== "Cell_rowId_columnId_key"
-          ) {
-            // Keep primary key and unique constraint
+          if (idx.indexname !== "Cell_pkey") {
+            // Keep primary key, drop other indexes
             try {
               await indexClient.query(
                 `DROP INDEX CONCURRENTLY IF EXISTS "${idx.indexname}"`,
@@ -180,7 +183,7 @@ export class SampleDataService {
               console.warn(`Could not drop index ${idx.indexname}:`, e);
             }
           } else {
-            console.log(`Keeping constraint/index: ${idx.indexname}`);
+            console.log(`Keeping primary key: ${idx.indexname}`);
           }
         }
       } finally {
@@ -349,33 +352,12 @@ FROM computed;
       console.log("No index recreation needed (indexes were not dropped)");
     }
 
-    // Ensure the unique constraint exists (critical for updateCell operations)
-    const constraintClient = new Client({ connectionString: writerUrl });
-    await constraintClient.connect();
-
-    try {
-      const constraintExists = await constraintClient.query(`
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'Cell_rowId_columnId_key' AND contype = 'u'
-      `);
-
-      if (constraintExists.rows.length === 0) {
-        console.log(
-          "Creating missing unique constraint: Cell_rowId_columnId_key",
-        );
-        await constraintClient.query(`
-          ALTER TABLE "Cell" ADD CONSTRAINT "Cell_rowId_columnId_key" 
-          UNIQUE ("rowId", "columnId")
-        `);
-        console.log("Unique constraint created successfully");
-      } else {
-        console.log("Unique constraint Cell_rowId_columnId_key already exists");
-      }
-    } catch (e) {
-      console.warn("Could not create unique constraint:", e);
-    } finally {
-      await constraintClient.end();
-    }
+    // Note: Cell_rowId_columnId_key is now a UNIQUE CONSTRAINT in the Prisma schema
+    // It's automatically preserved during index dropping since we exclude constraints
+    // The unique constraint is never dropped, so no need to recreate it
+    console.log(
+      "Cell_rowId_columnId_key unique constraint is preserved (never dropped)",
+    );
 
     return {
       success: true,

@@ -135,7 +135,7 @@ model Cell {
   column    Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
   row       Row      @relation(fields: [rowId], references: [id], onDelete: Cascade)
 
-  @@index([rowId, columnId], map: "Cell_rowId_columnId_key")
+  @@unique([rowId, columnId], map: "Cell_rowId_columnId_key")
   @@index([rowId])
   @@index([columnId])
 }
