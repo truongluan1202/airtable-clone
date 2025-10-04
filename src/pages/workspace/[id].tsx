@@ -48,13 +48,31 @@ export default function WorkspacePage() {
   );
 
   const createBase = api.base.create.useMutation({
-    onSuccess: (newBase) => {
+    onSuccess: (result) => {
       void refetchBases();
       setShowCreateBase(false);
       setBaseName("");
       setBaseDescription("");
-      // Redirect to the newly created base immediately
-      void router.push(`/base/${newBase.id}`);
+
+      // Update URL to real table ID when API completes
+      if (result.tableId) {
+        console.log(
+          "✅ API completed, updating URL to real table:",
+          result.tableId,
+        );
+        void router.replace(`/table/${result.tableId}`);
+      } else {
+        console.log(
+          "🔄 No table created, redirecting to base:",
+          result.base.id,
+        );
+        void router.replace(`/base/${result.base.id}`);
+      }
+    },
+    onError: (error) => {
+      console.error("❌ Base creation failed:", error);
+      // Redirect back to workspace on error
+      void router.replace(`/workspace/${id as string}`);
     },
   });
 
@@ -122,6 +140,14 @@ export default function WorkspacePage() {
 
   const handleCreateBase = () => {
     if (baseName.trim() && id) {
+      // Generate table ID immediately for instant redirect
+      const tempTableId = `temp-table-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      // Redirect immediately while API processes
+      console.log("🚀 Optimistic redirect to table:", tempTableId);
+      void router.push(`/table/${tempTableId}`);
+
+      // Start API call in background
       createBase.mutate({
         name: baseName.trim(),
         description: baseDescription.trim() || undefined,
@@ -383,7 +409,7 @@ export default function WorkspacePage() {
                       >
                         {deleteWorkspace.isPending ? (
                           <div className="flex items-center space-x-2">
-                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent"></div>
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
                             <span>Deleting...</span>
                           </div>
                         ) : (
@@ -499,7 +525,7 @@ export default function WorkspacePage() {
           <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black">
             <div className="rounded-lg bg-white p-8 shadow-xl">
               <div className="flex flex-col items-center space-y-4">
-                <div className="h-12 w-12 animate-spin rounded-full border-4 border-red-600 border-t-transparent"></div>
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
                 <div className="text-center">
                   <p className="mt-2 text-sm text-gray-600">
                     Please wait while we delete the workspace...

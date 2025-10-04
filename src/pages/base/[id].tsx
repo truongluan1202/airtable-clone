@@ -14,6 +14,7 @@ export default function BaseDetail() {
   const [tableName, setTableName] = useState("");
   const [tableDescription, setTableDescription] = useState("");
   const [isCreatingTable, setIsCreatingTable] = useState(false);
+  const [waitingForDefaultTable, setWaitingForDefaultTable] = useState(false);
 
   const {
     data: base,
@@ -22,7 +23,28 @@ export default function BaseDetail() {
   } = api.base.getById.useQuery({ id: id as string }, { enabled: !!id });
 
   const { data: tables, refetch: refetchTables } =
-    api.table.getByBaseId.useQuery({ baseId: id as string }, { enabled: !!id });
+    api.table.getByBaseId.useQuery(
+      { baseId: id as string },
+      {
+        enabled: !!id,
+        // Poll every 500ms when waiting for default table creation (synchronous creation should be fast)
+        refetchInterval: (data) => {
+          // If no tables exist but base exists, poll for new tables
+          if (base && (!data || (Array.isArray(data) && data.length === 0))) {
+            console.log("🔄 Polling for tables...", {
+              baseId: base.id,
+              tablesCount: Array.isArray(data) ? data.length : 0,
+            });
+            return 500; // Poll every 500ms for very fast detection
+          }
+          console.log("✅ Tables found, stopping polling", {
+            tablesCount: Array.isArray(data) ? data.length : 0,
+          });
+          return false; // Stop polling when tables exist
+        },
+        refetchIntervalInBackground: true,
+      },
+    );
 
   const createTable = api.table.create.useMutation({
     onMutate: () => {
@@ -49,28 +71,49 @@ export default function BaseDetail() {
     }
   }, [session, status, router]);
 
-  // Auto-redirect to first table if tables exist, or show create table if none exist
+  // Auto-redirect to first table if tables exist, or show skeleton immediately
   useEffect(() => {
     if (tables && tables.length > 0 && !showCreateTable && !isCreatingTable) {
+      // Reset waiting state when tables are found
+      setWaitingForDefaultTable(false);
+      console.log("✅ Table found, redirecting to table page:", tables[0]?.id);
       void router.push(`/table/${tables[0]?.id}`);
     } else if (
       tables &&
       tables.length === 0 &&
       !showCreateTable &&
-      !isCreatingTable
+      !isCreatingTable &&
+      base
     ) {
-      // If no tables exist, show the create table modal
-      setShowCreateTable(true);
-    }
-  }, [tables, router, showCreateTable, isCreatingTable]);
+      // If no tables exist but base exists, show skeleton immediately
+      // Since base creation is now synchronous, table should be available
+      console.log("🔄 Showing skeleton - table should be available soon...");
+      setWaitingForDefaultTable(true);
 
-  // Show skeleton loading when base exists but no tables yet (async table creation)
-  const isTableBeingCreated =
-    base &&
-    tables &&
-    tables.length === 0 &&
-    !showCreateTable &&
-    !isCreatingTable;
+      // Immediately refetch tables to catch the newly created table
+      console.log("🔄 Immediately refetching tables...");
+      void refetchTables();
+    }
+  }, [tables, router, showCreateTable, isCreatingTable, base, refetchTables]);
+
+  // Timeout fallback: if waiting too long for default table, show create table modal
+  useEffect(() => {
+    if (waitingForDefaultTable) {
+      const timeout = setTimeout(() => {
+        console.log(
+          "⏰ Timeout waiting for default table, showing create table modal",
+        );
+        setWaitingForDefaultTable(false);
+        setShowCreateTable(true);
+      }, 2000); // 2 second timeout (very fast with synchronous creation)
+
+      return () => clearTimeout(timeout);
+    }
+  }, [waitingForDefaultTable]);
+
+  // Show skeleton when creating table or when no tables exist
+  const shouldShowSkeleton =
+    base && (isCreatingTable || !tables || tables.length === 0);
 
   const handleCreateTable = () => {
     if (tableName.trim() && id) {
@@ -83,14 +126,27 @@ export default function BaseDetail() {
     }
   };
 
+  // Show base UI immediately even during loading
   if (status === "loading" || baseLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
+      <>
+        <Head>
+          <title>Loading base - Airtable Clone</title>
+          <meta name="description" content="Loading your base..." />
+          <link rel="icon" href="/favicon.ico" />
+        </Head>
+        <TableViewLayout
+          baseName="Loading base..."
+          tableName="Loading table..."
+          baseId={id as string}
+          tables={[]}
+        >
+          <TableSkeleton
+            baseName="Loading base..."
+            tableName="Loading table..."
+          />
+        </TableViewLayout>
+      </>
     );
   }
 
@@ -140,22 +196,40 @@ export default function BaseDetail() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* Show skeleton when creating table or when table is being created asynchronously */}
-      {isCreatingTable || isTableBeingCreated ? (
+      {/* Always show skeleton when accessing base page */}
+      {shouldShowSkeleton ? (
         <TableViewLayout
           baseName={base.name}
-          tableName={
-            isCreatingTable ? "Creating table..." : "Setting up your base..."
-          }
+          tableName={isCreatingTable ? "Creating table..." : "Loading table..."}
           baseId={base.id}
           tables={[]}
         >
-          <TableSkeleton
-            baseName={base.name}
-            tableName={
-              isCreatingTable ? "Creating table..." : "Setting up your base..."
-            }
-          />
+          <div className="space-y-4">
+            <TableSkeleton
+              baseName={base.name}
+              tableName={
+                isCreatingTable ? "Creating table..." : "Loading table..."
+              }
+            />
+            <div className="text-center">
+              <p className="mb-3 text-sm text-gray-600">
+                {isCreatingTable
+                  ? "Creating your table..."
+                  : "Setting up your table..."}
+              </p>
+              {!isCreatingTable && (
+                <button
+                  onClick={() => {
+                    console.log("🔄 Manual refresh requested");
+                    void refetchTables();
+                  }}
+                  className="text-sm text-blue-600 underline hover:text-blue-800"
+                >
+                  Check for table
+                </button>
+              )}
+            </div>
+          </div>
         </TableViewLayout>
       ) : (
         <>
@@ -163,11 +237,11 @@ export default function BaseDetail() {
           <div className="flex min-h-screen items-center justify-center bg-white">
             <div className="text-center">
               <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
-              <p className="mt-4 text-gray-600">Loading table...</p>
+              <p className="mt-4 text-gray-600">Loading base...</p>
             </div>
           </div>
 
-          {/* Create Table Modal - only show when no tables exist */}
+          {/* Create Table Modal - fallback if needed */}
           {showCreateTable && (
             <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
               <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-lg">

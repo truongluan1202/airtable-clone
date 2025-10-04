@@ -30,6 +30,9 @@ interface TableNavigationProps {
   onCreateView?: (name: string) => void;
   onDeleteView?: (viewId: string) => void;
   tableId?: string;
+  // Loading states
+  isCreatingView?: boolean;
+  isDeletingView?: boolean;
 }
 
 export function TableNavigation({
@@ -51,6 +54,9 @@ export function TableNavigation({
   onCreateView,
   onDeleteView,
   tableId: _tableId,
+  // Loading states
+  isCreatingView = false,
+  isDeletingView = false,
 }: TableNavigationProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
@@ -487,18 +493,26 @@ export function TableNavigation({
           <div className="p-4">
             {/* Create new view */}
             <div
-              className="mb-2 flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100"
-              onClick={() => setShowCreateViewModal(true)}
+              className={`mb-2 flex cursor-pointer items-center space-x-3 rounded-md p-2 hover:bg-gray-100 ${
+                isCreatingView ? "cursor-not-allowed opacity-50" : ""
+              }`}
+              onClick={() => !isCreatingView && setShowCreateViewModal(true)}
             >
-              <Image
-                src="/icons/plus.svg"
-                alt="Create"
-                width={12}
-                height={12}
-                className="text-gray-600"
-              />
+              {isCreatingView ? (
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
+              ) : (
+                <Image
+                  src="/icons/plus.svg"
+                  alt="Create"
+                  width={12}
+                  height={12}
+                  className="text-gray-600"
+                />
+              )}
               {!sidebarCollapsed && (
-                <span className="text-xs text-gray-700">Create new view</span>
+                <span className="text-xs text-gray-700">
+                  {isCreatingView ? "Creating view..." : "Create new view"}
+                </span>
               )}
             </div>
 
@@ -546,24 +560,34 @@ export function TableNavigation({
                       <span className="text-xs text-gray-900">{view.name}</span>
                     )}
                   </div>
-                  {!sidebarCollapsed && onDeleteView && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteView(view.id);
-                      }}
-                      className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-200"
-                    >
-                      <svg
-                        width="12"
-                        height="12"
-                        fill="currentColor"
-                        viewBox="0 0 256 256"
+                  {!sidebarCollapsed &&
+                    onDeleteView &&
+                    view.name !== "Grid view" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteView(view.id);
+                        }}
+                        disabled={isDeletingView}
+                        className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        title={
+                          isDeletingView ? "Deleting view..." : "Delete view"
+                        }
                       >
-                        <path d="M205.66 194.34a8 8 0 0 1-11.32 11.32L128 139.31l-66.34 66.35a8 8 0 0 1-11.32-11.32L116.69 128L50.34 61.66a8 8 0 0 1 11.32-11.32L128 116.69l66.34-66.35a8 8 0 0 1 11.32 11.32L139.31 128Z" />
-                      </svg>
-                    </button>
-                  )}
+                        {isDeletingView ? (
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600"></div>
+                        ) : (
+                          <svg
+                            width="12"
+                            height="12"
+                            fill="currentColor"
+                            viewBox="0 0 256 256"
+                          >
+                            <path d="M205.66 194.34a8 8 0 0 1-11.32 11.32L128 139.31l-66.34 66.35a8 8 0 0 1-11.32-11.32L116.69 128L50.34 61.66a8 8 0 0 1 11.32-11.32L128 116.69l66.34-66.35a8 8 0 0 1 11.32 11.32L139.31 128Z" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
                 </div>
               ))}
             </div>
@@ -571,7 +595,7 @@ export function TableNavigation({
         </div>
 
         {/* Table Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="relative flex-1 overflow-hidden">
           {React.Children.map(children, (child) => {
             if (React.isValidElement(child)) {
               // Clone the child and pass our converted filters
@@ -581,6 +605,25 @@ export function TableNavigation({
             }
             return child;
           })}
+
+          {/* View Operation Loading Overlay */}
+          {(isCreatingView || isDeletingView) && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+              <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-300 border-t-blue-600"></div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {isCreatingView ? "Creating view..." : "Deleting view..."}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Please wait while we process your request
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -607,10 +650,13 @@ export function TableNavigation({
             <div className="flex justify-end space-x-3">
               <button
                 onClick={() => {
-                  setShowCreateViewModal(false);
-                  setNewViewName("");
+                  if (!isCreatingView) {
+                    setShowCreateViewModal(false);
+                    setNewViewName("");
+                  }
                 }}
-                className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                disabled={isCreatingView}
+                className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -622,10 +668,17 @@ export function TableNavigation({
                     setNewViewName("");
                   }
                 }}
-                disabled={!newViewName.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-gray-300"
+                disabled={!newViewName.trim() || isCreatingView}
+                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
               >
-                Create View
+                {isCreatingView ? (
+                  <div className="flex items-center space-x-2">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                    <span>Creating...</span>
+                  </div>
+                ) : (
+                  "Create View"
+                )}
               </button>
             </div>
           </div>

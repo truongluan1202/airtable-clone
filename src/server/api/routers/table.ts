@@ -1134,7 +1134,7 @@ export const tableRouter = createTRPCRouter({
       return views;
     }),
 
-  // Create a new view
+  // Create a new view - Optimized with combined ownership check
   createView: protectedProcedure
     .input(
       z.object({
@@ -1147,32 +1147,38 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify table ownership
-      const table = await ctx.prisma.table.findFirst({
-        where: {
-          id: input.tableId,
-          base: {
-            userId: ctx.session.user.id,
+      // Use transaction to combine ownership check and view creation
+      const result = await ctx.prisma.$transaction(async (tx: any) => {
+        // Verify table ownership with raw SQL for better performance
+        const tableResult = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT t.id
+          FROM "Table" t
+          JOIN "Base" b ON t."baseId" = b.id
+          WHERE t.id = ${input.tableId}
+            AND b."userId" = ${ctx.session.user.id}
+          LIMIT 1
+        `;
+
+        if (tableResult.length === 0) {
+          throw new Error("Table not found");
+        }
+
+        // Create the view
+        const view = await tx.view.create({
+          data: {
+            name: input.name,
+            tableId: input.tableId,
+            filters: input.filters,
+            sort: input.sort,
+            columns: input.columns,
+            search: input.search,
           },
-        },
+        });
+
+        return view;
       });
 
-      if (!table) {
-        throw new Error("Table not found");
-      }
-
-      const view = await ctx.prisma.view.create({
-        data: {
-          name: input.name,
-          tableId: input.tableId,
-          filters: input.filters,
-          sort: input.sort,
-          columns: input.columns,
-          search: input.search,
-        },
-      });
-
-      return view;
+      return result;
     }),
 
   // Update a view
@@ -1214,24 +1220,30 @@ export const tableRouter = createTRPCRouter({
       return updatedView;
     }),
 
-  // Delete a view
+  // Delete a view - Optimized with raw SQL and default view protection
   deleteView: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify view ownership through table
-      const view = await ctx.prisma.view.findFirst({
-        where: {
-          id: input.id,
-          table: {
-            base: {
-              userId: ctx.session.user.id,
-            },
-          },
-        },
-      });
+      // Use raw SQL for better performance with proper indexing
+      const viewResult = await ctx.prisma.$queryRaw<
+        Array<{ id: string; name: string }>
+      >`
+        SELECT v.id, v.name
+        FROM "View" v
+        JOIN "Table" t ON v."tableId" = t.id
+        JOIN "Base" b ON t."baseId" = b.id
+        WHERE v.id = ${input.id}
+          AND b."userId" = ${ctx.session.user.id}
+        LIMIT 1
+      `;
 
-      if (!view) {
+      if (viewResult.length === 0) {
         throw new Error("View not found");
+      }
+
+      // Prevent deletion of default "Grid view"
+      if (viewResult[0].name === "Grid view") {
+        throw new Error("Cannot delete the default Grid view");
       }
 
       await ctx.prisma.view.delete({

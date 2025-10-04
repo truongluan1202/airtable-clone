@@ -158,7 +158,7 @@ export default function Home() {
           <div className="bg-opacity-50 fixed inset-0 z-[100] flex items-center justify-center bg-black">
             <div className="rounded-lg bg-white p-8 shadow-xl">
               <div className="flex flex-col items-center space-y-4">
-                <div className="h-12 w-12 animate-spin rounded-full border-4 border-red-600 border-t-transparent"></div>
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div>
                 <div className="text-center">
                   <h3 className="text-lg font-medium text-gray-900">
                     Deleting Workspace
