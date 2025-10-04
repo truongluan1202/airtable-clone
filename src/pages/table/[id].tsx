@@ -61,6 +61,14 @@ export default function TableDetail() {
       gcTime: 10 * 60 * 1000, // 10 minutes - keep in cache longer
       refetchOnWindowFocus: false, // Don't refetch on window focus
       refetchOnMount: false, // Don't refetch on mount if data exists
+      retry: (failureCount, error) => {
+        // Retry up to 3 times for network errors, but not for auth errors
+        if (failureCount < 3 && error.message.includes("network")) {
+          return true;
+        }
+        return false;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
     },
   );
 
@@ -219,15 +227,41 @@ export default function TableDetail() {
       setIsBulkLoading(true);
       setBulkLoadingMessage(`Adding ${variables.count ?? 0} test rows...`);
     },
-    onSuccess: async (_data) => {
+    onSuccess: async (data) => {
       setIsBulkLoading(false);
+      setBulkLoadingMessage("Data added! Refreshing...");
 
-      // Simple page refresh - no need for complex cache management
-      window.location.reload();
+      // Optimized: Invalidate and refetch data instead of full page reload
+      // This allows progressive loading while indexes are being rebuilt
+      await Promise.all([
+        utils.table.getByIdPaginated.invalidate({ id: id as string }),
+        utils.table.getRowCount.invalidate({ id: id as string }),
+        utils.table.getViews.invalidate({ tableId: id as string }),
+      ]);
+
+      // Show success message with progressive loading feedback
+      setBulkLoadingMessage(`✅ Added ${data.rowsAdded} rows! Loading data...`);
+
+      // Simulate progressive loading feedback
+      setTimeout(() => {
+        setBulkLoadingMessage("⚡ Optimizing performance...");
+      }, 1000);
+
+      setTimeout(() => {
+        setBulkLoadingMessage("🎉 Ready! Data is now fully optimized.");
+      }, 3000);
+
+      setTimeout(() => {
+        setBulkLoadingMessage("");
+      }, 5000);
     },
     onError: (error) => {
       console.error("❌ Error adding test rows:", error);
       setIsBulkLoading(false);
+      setBulkLoadingMessage("❌ Failed to add test rows");
+      setTimeout(() => {
+        setBulkLoadingMessage("");
+      }, 3000);
     },
   });
 

@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DIRECT_DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DIRECT_DATABASE_URL")
   directUrl = env("DIRECT_DATABASE_URL")
 }
 
@@ -121,6 +121,7 @@ model Row {
 
   @@index([tableId])
   @@index([tableId, createdAt, id])
+  @@index([tableId, createdAt, id], map: "Row_table_created_id_idx")
 }
 
 model Cell {
@@ -134,7 +135,7 @@ model Cell {
   column    Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
   row       Row      @relation(fields: [rowId], references: [id], onDelete: Cascade)
 
-  @@unique([rowId, columnId])
+  @@index([rowId, columnId], map: "Cell_rowId_columnId_key")
   @@index([rowId])
   @@index([columnId])
 }

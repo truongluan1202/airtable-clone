@@ -1,31 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { faker } from "@faker-js/faker";
 import { createId } from "@paralleldrive/cuid2";
-import { from as copyFrom } from "pg-copy-streams";
-import { env } from "~/env.js";
-// helpers
-const NULL = "\\N";
-const q = (s: string) => `"${s.replace(/"/g, '""')}"`; // CSV quote, double internal quotes
-const csvText = (v: string | null | undefined) => (v == null ? NULL : q(v));
-const csvNum = (v: number | null | undefined) => (v == null ? NULL : String(v));
-
-async function runWithConcurrency<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-) {
-  const queue = items.slice();
-  const n = Math.min(concurrency, queue.length);
-  await Promise.all(
-    Array.from({ length: n }, async () => {
-      while (queue.length) {
-        const it = queue.shift()!;
-        await worker(it);
-      }
-    }),
-  );
-}
+import { createSampleDataService } from "~/server/services/sampleDataService";
 
 export const tableRouter = createTRPCRouter({
   // Get all tables for a base - Optimized with raw SQL
@@ -342,82 +318,18 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
-      // Add sample data if requested - Optimized approach
+      // Add sample data if requested using the dedicated service
       if (input.withSampleData) {
-        // Create sample rows with optimized bulk insert
-        const sampleRowIds = Array.from({ length: 5 }, () => createId());
-        const sampleRows: Array<{
-          id: string;
-          tableId: string;
-          cache: Record<string, string | number | null>;
-          search: string;
-        }> = [];
-        const cells: Array<{
-          id: string;
-          rowId: string;
-          columnId: string;
-          vText: string | null;
-          vNumber: number | null;
-        }> = [];
-
-        for (let i = 0; i < 5; i++) {
-          const rowId = sampleRowIds[i];
-          const cache: Record<string, string | number | null> = {};
-          const searchTexts: string[] = [];
-
-          for (const column of table.columns) {
-            let value;
-            if (column.type === "TEXT") {
-              if (column.name.toLowerCase().includes("name")) {
-                value = faker.person.firstName();
-              } else if (column.name.toLowerCase().includes("email")) {
-                value = faker.internet.email();
-              } else {
-                value = faker.lorem.word();
-              }
-            } else if (column.type === "NUMBER") {
-              value = faker.number.int({ min: 1, max: 100 });
-            }
-
-            cache[column.id] = value ?? null;
-            if (value) {
-              searchTexts.push(String(value));
-            }
-
-            cells.push({
-              id: createId(),
-              rowId: rowId!,
-              columnId: column.id,
-              vText: column.type === "TEXT" ? (value as string | null) : null,
-              vNumber:
-                column.type === "NUMBER" ? (value as number | null) : null,
-            });
-          }
-
-          sampleRows.push({
-            id: rowId!,
-            tableId: table.id,
-            cache: cache, // Keep as object, no JSON conversion
-            search: searchTexts.join(" ").toLowerCase(),
-          });
-        }
-
-        // Bulk insert rows and cells in a single transaction
-        await ctx.prisma.$transaction(async (tx: any) => {
-          // Insert rows
-          await tx.row.createMany({
-            data: sampleRows.map((row) => ({
-              id: row.id,
-              tableId: row.tableId,
-              cache: row.cache, // Already an object, no parsing needed
-              search: row.search,
-            })),
-          });
-
-          // Insert cells
-          await tx.cell.createMany({
-            data: cells, // IDs already generated, no need to map
-          });
+        const sampleDataService = createSampleDataService(ctx.prisma);
+        await sampleDataService.generateSimpleSampleData({
+          tableId: table.id,
+          columns: table.columns.map((col: any) => ({
+            id: col.id,
+            name: col.name,
+            type: col.type,
+          })),
+          count: 5,
+          useFaker: true,
         });
       }
 
@@ -504,160 +416,26 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 1) Verify ownership & columns (via Prisma)
+      // Verify ownership & columns (via Prisma)
       const table = await ctx.prisma.table.findFirst({
-        where: {
-          id: input.tableId,
-          base: { userId: ctx.session.user.id },
-        },
+        where: { id: input.tableId, base: { userId: ctx.session.user.id } },
         include: { columns: true },
       });
       if (!table) throw new Error("Table not found");
       if (input.count <= 0) return { success: true, rowsAdded: 0 };
 
-      // 2) Direct (non-pooled) writer URL for COPY
-      const writerUrl = env.DIRECT_DATABASE_URL;
-
-      // 3) Batching, parallelism
-      const batchSize = 35000; // tune 10k–25k based on DB
-      const totalBatches = Math.ceil(input.count / batchSize);
-      const batches = Array.from({ length: totalBatches }, (_, i) => {
-        const start = i * batchSize;
-        const count = Math.min(batchSize, input.count - start);
-        return { start, count };
+      // Use the dedicated service for bulk sample data generation
+      const sampleDataService = createSampleDataService(ctx.prisma);
+      return await sampleDataService.generateBulkSampleData({
+        tableId: table.id,
+        columns: table.columns.map((col: any) => ({
+          id: col.id,
+          name: col.name,
+          type: col.type,
+        })),
+        count: input.count,
+        useFaker: false, // Use deterministic generation for bulk
       });
-      const parallel = Math.min(4, totalBatches); // 2 parallel batches
-
-      // Per-batch worker: COPY rows then cells in a single txn
-      const processBatch = async (b: { start: number; count: number }) => {
-        const { Client } = await import("pg");
-        const client = new Client({ connectionString: writerUrl });
-        await client.connect();
-
-        try {
-          await client.query("BEGIN");
-          await client.query("SET LOCAL synchronous_commit = off");
-          // optional: await client.query("SET LOCAL statement_timeout = '30s'");
-
-          const nowIso = new Date().toISOString();
-          const hasColumns = table.columns.length > 0;
-
-          // --- COPY into "Row" ---
-          const copyRowsSQL = `
-          COPY "Row"(id, "tableId", cache, search, "createdAt", "updatedAt")
-          FROM STDIN WITH (FORMAT csv, NULL '${NULL}')
-        `;
-          const rowStream = client.query(copyFrom(copyRowsSQL));
-
-          // We'll stage cell lines while streaming rows (memory OK for 10k * (cols))
-          const cellLines: string[] = [];
-
-          for (let i = 0; i < b.count; i++) {
-            const rowId = createId();
-            const cache: Record<string, string | number | null> = {};
-            const searchParts: string[] = [];
-
-            if (hasColumns) {
-              for (const column of table.columns) {
-                let value: string | number | null = null;
-
-                // short values for speed/size
-                if (column.name === "Name") {
-                  value = faker.person.firstName();
-                } else if (column.name === "Email") {
-                  value = faker.internet.email();
-                } else if (column.name === "Age") {
-                  value = faker.number.int({ min: 18, max: 80 });
-                } else if (column.type === "TEXT") {
-                  value = faker.lorem.word();
-                } else if (column.type === "NUMBER") {
-                  value = faker.number.int({ min: 1, max: 100 });
-                }
-
-                cache[column.id] = value;
-                if (value != null && value !== "")
-                  searchParts.push(String(value));
-
-                // Stage a "Cell" CSV line
-                const cellId = createId();
-                const vText =
-                  column.type === "TEXT" ? (value as string | null) : null;
-                const vNumber =
-                  column.type === "NUMBER" ? (value as number | null) : null;
-
-                cellLines.push(
-                  [
-                    csvText(cellId),
-                    csvText(rowId),
-                    csvText(column.id),
-                    csvText(vText),
-                    csvNum(vNumber),
-                    csvText(nowIso),
-                    csvText(nowIso),
-                  ].join(",") + "\n",
-                );
-              }
-            }
-
-            const search = searchParts.join(" ").toLowerCase();
-            const rowLine =
-              [
-                csvText(rowId),
-                csvText(table.id),
-                csvText(JSON.stringify(cache)), // json text; column is jsonb
-                csvText(search),
-                csvText(nowIso),
-                csvText(nowIso),
-              ].join(",") + "\n";
-
-            if (!rowStream.write(rowLine)) {
-              await new Promise((res) => rowStream.once("drain", res));
-            }
-          }
-
-          rowStream.end();
-          await new Promise<void>((resolve, reject) => {
-            rowStream.on("finish", resolve);
-            rowStream.on("error", reject);
-          });
-
-          // --- COPY into "Cell" ---
-          if (hasColumns && cellLines.length) {
-            const copyCellsSQL = `
-            COPY "Cell"(id, "rowId", "columnId", "vText", "vNumber", "createdAt", "updatedAt")
-            FROM STDIN WITH (FORMAT csv, NULL '${NULL}')
-          `;
-            const cellStream = client.query(copyFrom(copyCellsSQL));
-
-            for (const line of cellLines) {
-              if (!cellStream.write(line)) {
-                await new Promise((res) => cellStream.once("drain", res));
-              }
-            }
-
-            cellStream.end();
-            await new Promise<void>((resolve, reject) => {
-              cellStream.on("finish", resolve);
-              cellStream.on("error", reject);
-            });
-          }
-
-          await client.query("COMMIT");
-        } catch (err) {
-          try {
-            await client.query("ROLLBACK");
-          } catch {}
-          throw err;
-        } finally {
-          try {
-            await client.end();
-          } catch {}
-        }
-      };
-
-      await runWithConcurrency(batches, parallel, processBatch);
-
-      return { success: true, rowsAdded: input.count };
     }),
 
   // Update a cell value - Optimized with single transaction
