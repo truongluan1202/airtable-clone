@@ -59,6 +59,7 @@ export interface TableView {
   sort: SortConfig[] | null;
   columns: ColumnVisibilityConfig[] | null;
   search: string | null;
+  version: number;
   createdAt: Date;
   updatedAt: Date;
 }

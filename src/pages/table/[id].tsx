@@ -14,12 +14,20 @@ export default function TableDetail() {
   const router = useRouter();
   const { id } = router.query;
   const utils = api.useUtils();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [columnVisibility, setColumnVisibility] = useState<
-    Record<string, boolean>
+  // Per-view state management - each view maintains its own state
+  const [viewStates, setViewStates] = useState<
+    Record<
+      string,
+      {
+        searchQuery: string;
+        columnVisibility: Record<string, boolean>;
+        sort: SortConfig[];
+        filters: FilterGroup[];
+        version: number; // Track version for optimistic concurrency
+      }
+    >
   >({});
-  const [sort, setSort] = useState<SortConfig[]>([]);
-  const [filters, setFilters] = useState<FilterGroup[]>([]);
+
   const [isBulkLoading, setIsBulkLoading] = useState(false);
   const [bulkLoadingMessage, setBulkLoadingMessage] =
     useState("Adding rows...");
@@ -27,6 +35,150 @@ export default function TableDetail() {
   const [isLoadingViewData, setIsLoadingViewData] = useState(false);
   // View-related state
   const [currentView, setCurrentView] = useState<TableView | null>(null);
+
+  // Get current view's state (with defaults)
+  const getCurrentViewState = () => {
+    if (!currentView)
+      return {
+        searchQuery: "",
+        columnVisibility: {},
+        sort: [],
+        filters: [],
+        version: 1,
+      };
+
+    return (
+      viewStates[currentView.id] ?? {
+        searchQuery: "",
+        columnVisibility: {},
+        sort: [],
+        filters: [],
+        version: currentView.version ?? 1,
+      }
+    );
+  };
+
+  const currentViewState = getCurrentViewState();
+  const searchQuery = currentViewState.searchQuery;
+  const columnVisibility = currentViewState.columnVisibility;
+  const sort = currentViewState.sort;
+  const filters = currentViewState.filters;
+
+  // Update current view's state with proper merging and patch generation
+  const updateCurrentViewState = (
+    updates: Partial<{
+      searchQuery: string;
+      columnVisibility: Record<string, boolean>;
+      sort: SortConfig[];
+      filters: FilterGroup[];
+    }>,
+  ) => {
+    if (!currentView) return;
+
+    console.log("🔄 Updating view state:", {
+      viewId: currentView.id,
+      viewName: currentView.name,
+      updates,
+    });
+
+    // Update the state using functional setter to ensure we get the latest state
+    setViewStates((prev) => {
+      const currentState = prev[currentView.id] ?? {
+        searchQuery: "",
+        columnVisibility: {},
+        sort: [],
+        filters: [],
+        version: currentView.version ?? 1,
+      };
+
+      // Merge updates with current state, handling filters specially
+      const newState = {
+        ...currentState,
+        ...updates,
+      };
+
+      // Special handling for filters - merge by ID to preserve existing conditions
+      if (updates.filters !== undefined) {
+        const currentFilters = currentState.filters || [];
+        const newFilters = updates.filters;
+
+        // If newFilters is an array, merge by ID (upsert)
+        if (Array.isArray(newFilters)) {
+          // If newFilters is empty, clear all filters
+          if (newFilters.length === 0) {
+            newState.filters = [];
+          } else {
+            // Otherwise, merge by ID (upsert)
+            const mergedFilters = [...currentFilters];
+
+            newFilters.forEach((newFilter) => {
+              if (newFilter.id) {
+                // Find existing filter by ID and replace it
+                const existingIndex = mergedFilters.findIndex(
+                  (f) => f.id === newFilter.id,
+                );
+                if (existingIndex >= 0) {
+                  mergedFilters[existingIndex] = newFilter;
+                } else {
+                  // Add new filter if ID doesn't exist
+                  mergedFilters.push(newFilter);
+                }
+              } else {
+                // If no ID, treat as a new filter and add it
+                mergedFilters.push(newFilter);
+              }
+            });
+
+            newState.filters = mergedFilters;
+          }
+        }
+      }
+
+      // Generate patches for each changed field by diffing prevState → nextState
+      Object.entries(updates).forEach(([key, value]) => {
+        if (value !== undefined) {
+          let hasChanged = false;
+
+          if (key === "filters") {
+            // For filters, compare the merged result
+            hasChanged =
+              JSON.stringify(currentState.filters) !==
+              JSON.stringify(newState.filters);
+            if (hasChanged) {
+              addPatch("set", "filters", newState.filters);
+            }
+          } else if (key === "columnVisibility") {
+            // Convert columnVisibility to columns array format
+            const columnsArray = Object.entries(value).map(
+              ([columnId, visible], index) => ({
+                columnId,
+                visible,
+                order: index,
+              }),
+            );
+            hasChanged =
+              JSON.stringify(currentState[key as keyof typeof currentState]) !==
+              JSON.stringify(columnsArray);
+            if (hasChanged) {
+              addPatch("set", "columns", columnsArray);
+            }
+          } else {
+            hasChanged =
+              JSON.stringify(currentState[key as keyof typeof currentState]) !==
+              JSON.stringify(value);
+            if (hasChanged) {
+              addPatch("set", key, value);
+            }
+          }
+        }
+      });
+
+      return {
+        ...prev,
+        [currentView.id]: newState,
+      };
+    });
+  };
 
   // Get total row count for complete table structure
   const { data: rowCountData } = api.table.getRowCount.useQuery(
@@ -129,69 +281,410 @@ export default function TableDetail() {
     });
   }, [allRows, columns]);
 
-  // Initialize column visibility when table data loads
-  useEffect(() => {
-    if (columns.length > 0 && Object.keys(columnVisibility).length === 0) {
-      const initialVisibility: Record<string, boolean> = {};
-      columns.forEach((column: { id: string }) => {
-        initialVisibility[column.id] = true; // All columns visible by default
+  // Column visibility is now managed per-view, no need for global initialization
+
+  // Per-view update queue system - each view has its own queue
+  const viewQueuesRef = useRef<
+    Map<
+      string,
+      {
+        isProcessing: boolean;
+        queuedPatches: Array<{
+          op: "set" | "merge";
+          path: string;
+          value: any;
+          timestamp: number;
+        }>;
+        currentVersion: number;
+        inFlightPatches: Array<{
+          op: "set" | "merge";
+          path: string;
+          value: any;
+          timestamp: number;
+        }> | null;
+        debounceTimeout: NodeJS.Timeout | null;
+      }
+    >
+  >(new Map());
+
+  // Get or create a queue for a specific view
+  const getViewQueue = (viewId: string) => {
+    if (!viewQueuesRef.current.has(viewId)) {
+      viewQueuesRef.current.set(viewId, {
+        isProcessing: false,
+        queuedPatches: [],
+        currentVersion: 1,
+        inFlightPatches: null,
+        debounceTimeout: null,
       });
-      setColumnVisibility(initialVisibility);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns]); // Removed columnVisibility from dependencies to prevent infinite loop
+    return viewQueuesRef.current.get(viewId)!;
+  };
+
+  // Clean up queue for a view (called when view is deleted)
+  const cleanupViewQueue = (viewId: string) => {
+    const queue = viewQueuesRef.current.get(viewId);
+    if (queue?.debounceTimeout) {
+      clearTimeout(queue.debounceTimeout);
+    }
+    viewQueuesRef.current.delete(viewId);
+  };
+
+  // Coalesce patches - last write per op:path wins
+  const coalescePatches = (
+    patches: Array<{
+      op: "set" | "merge";
+      path: string;
+      value: any;
+      timestamp: number;
+    }>,
+  ) => {
+    const patchMap = new Map<
+      string,
+      { op: "set" | "merge"; path: string; value: any; timestamp: number }
+    >();
+
+    // Sort by timestamp to ensure last write wins
+    const sortedPatches = [...patches].sort(
+      (a, b) => a.timestamp - b.timestamp,
+    );
+
+    for (const patch of sortedPatches) {
+      const key = `${patch.op}:${patch.path}`;
+      patchMap.set(key, patch);
+    }
+
+    return Array.from(patchMap.values());
+  };
+
+  // Process the view update queue for a specific view
+  const processViewUpdateQueue = async (viewId: string) => {
+    const queue = getViewQueue(viewId);
+
+    if (
+      !currentView ||
+      queue.isProcessing ||
+      queue.queuedPatches.length === 0
+    ) {
+      return;
+    }
+
+    // Only process if this is still the current view
+    if (currentView.id !== viewId) {
+      console.log("⏭️ View switched, aborting queue processing for old view:", {
+        targetViewId: viewId,
+        currentViewId: currentView.id,
+      });
+      return;
+    }
+
+    // Mark as processing
+    queue.isProcessing = true;
+
+    // Get all queued patches and clear the queue
+    const patches = [...queue.queuedPatches];
+    queue.queuedPatches = [];
+
+    // Coalesce patches (last write per op:path wins)
+    const coalescedPatches = coalescePatches(patches);
+
+    // Skip sending if no meaningful patches after coalescing
+    if (coalescedPatches.length === 0) {
+      console.log("⏭️ No meaningful patches after coalescing, skipping send");
+      queue.isProcessing = false;
+      return;
+    }
+
+    // Store in-flight patches for retry on conflict
+    queue.inFlightPatches = coalescedPatches;
+
+    console.log("🔄 Processing view update queue:", {
+      viewId: viewId,
+      originalPatchCount: patches.length,
+      coalescedPatchCount: coalescedPatches.length,
+      queueVersion: queue.currentVersion,
+      currentViewVersion: currentView.version,
+    });
+
+    // Send the patches
+    updateView
+      .mutateAsync({
+        id: viewId,
+        version: queue.currentVersion,
+        patches: coalescedPatches,
+      })
+      .catch((error) => {
+        console.error("❌ Queue processing failed:", error);
+        // Mark processing as complete
+        queue.isProcessing = false;
+        queue.inFlightPatches = null;
+      });
+  };
 
   // Update current view when filters, sort, or column visibility changes
   const updateView = api.table.updateView.useMutation({
-    onSuccess: async () => {
-      await refetchViews();
+    onSuccess: async (updatedView, variables) => {
+      console.log("✅ View updated successfully:", {
+        viewId: updatedView.id,
+        newVersion: updatedView.version,
+        sentVersion: variables.version,
+      });
+
+      // Only update currentView if this is still the current view
+      if (currentView?.id === updatedView.id) {
+        // Update the current view with new version
+        setCurrentView(updatedView);
+
+        // Update view state with new version
+        setViewStates((prev) => ({
+          ...prev,
+          [updatedView.id]: {
+            ...prev[updatedView.id],
+            version: updatedView.version,
+          },
+        }));
+      }
+
+      // Update the specific view's queue
+      const queue = getViewQueue(updatedView.id);
+      queue.currentVersion = updatedView.version;
+      queue.inFlightPatches = null;
+      queue.isProcessing = false;
+
+      // Process next batch if there are queued patches for this view
+      void processViewUpdateQueue(updatedView.id);
+
+      // Don't refetch views - can reintroduce older version
     },
-    onError: (error) => {
-      console.error("❌ Error updating view:", error);
+    onError: async (error, variables) => {
+      console.log("❌ View update failed:", {
+        viewId: variables.id,
+        sentVersion: variables.version,
+        error: error.message,
+      });
+
+      if (error.message.includes("CONFLICT")) {
+        console.log(
+          "🔄 Conflict detected, refetching view and retrying same batch",
+        );
+
+        // Refetch the view to get the latest version
+        const refetchResult = await refetchViews();
+        const refetchedViews = refetchResult.data;
+
+        // Find the updated view with new version
+        const updatedView = refetchedViews?.find(
+          (v: any) => v.id === variables.id,
+        );
+
+        if (updatedView) {
+          const queue = getViewQueue(variables.id);
+
+          if (queue.inFlightPatches) {
+            console.log("🔄 Retrying same batch with updated version:", {
+              viewId: updatedView.id,
+              newVersion: updatedView.version,
+              inFlightPatchCount: queue.inFlightPatches.length,
+            });
+
+            // Only update currentView if this is still the current view
+            if (currentView?.id === updatedView.id) {
+              // Update the current view with the new version
+              setCurrentView(updatedView);
+
+              // Update the view state with the new version
+              setViewStates((prev) => ({
+                ...prev,
+                [updatedView.id]: {
+                  ...prev[updatedView.id],
+                  version: updatedView.version,
+                },
+              }));
+            }
+
+            // Update the queue's current version
+            queue.currentVersion = updatedView.version;
+
+            // Retry with the same in-flight patches (don't drop them!)
+            updateView
+              .mutateAsync({
+                id: updatedView.id,
+                version: updatedView.version,
+                patches: queue.inFlightPatches,
+              })
+              .catch((retryError) => {
+                console.error("❌ Retry update failed:", retryError);
+                // Mark processing as complete and process next batch
+                queue.isProcessing = false;
+                queue.inFlightPatches = null;
+                void processViewUpdateQueue(variables.id);
+              });
+          } else {
+            console.error("❌ No in-flight patches found for retry");
+            queue.isProcessing = false;
+            void processViewUpdateQueue(variables.id);
+          }
+        } else {
+          console.error("❌ Could not find updated view after refetch");
+          const queue = getViewQueue(variables.id);
+          queue.isProcessing = false;
+          queue.inFlightPatches = null;
+          void processViewUpdateQueue(variables.id);
+        }
+      } else {
+        console.error("❌ Non-conflict error:", error);
+        const queue = getViewQueue(variables.id);
+        queue.isProcessing = false;
+        queue.inFlightPatches = null;
+        void processViewUpdateQueue(variables.id);
+      }
     },
   });
 
+  // Use refs to track the latest state values to avoid race conditions
+  const latestStateRef = useRef({
+    filters,
+    sort,
+    columnVisibility,
+    searchQuery,
+  });
+
+  // Update ref whenever state changes
   useEffect(() => {
+    latestStateRef.current = {
+      filters,
+      sort,
+      columnVisibility,
+      searchQuery,
+    };
+  }, [filters, sort, columnVisibility, searchQuery]);
+
+  const lastUpdateTimeRef = useRef<number>(0);
+
+  // Patch batching system
+  const pendingPatchesRef = useRef<
+    Array<{
+      op: "set" | "merge";
+      path: string;
+      value: any;
+      timestamp: number;
+    }>
+  >([]);
+
+  // Function to add patches to the batch
+  const addPatch = (op: "set" | "merge", path: string, value: any) => {
+    const now = Date.now();
+
+    // Remove any existing patches for the same path (latest wins)
+    pendingPatchesRef.current = pendingPatchesRef.current.filter(
+      (patch) => patch.path !== path,
+    );
+
+    // Add the new patch
+    pendingPatchesRef.current.push({
+      op,
+      path,
+      value,
+      timestamp: now,
+    });
+
+    console.log("📝 Added patch to batch:", {
+      op,
+      path,
+      value,
+      totalPatches: pendingPatchesRef.current.length,
+      patches: pendingPatchesRef.current.map((p) => ({
+        op: p.op,
+        path: p.path,
+      })),
+    });
+
+    // Trigger the debounced save
+    triggerDebouncedSave();
+  };
+
+  // Function to trigger the debounced save
+  const triggerDebouncedSave = () => {
     if (
       currentView &&
       table?.id &&
       !currentView.id.startsWith("temp-") &&
       currentView.name !== "Grid view"
     ) {
-      // Debounce the update to avoid too many API calls
-      // Don't update optimistic views (temp-* IDs) or the default Grid view
-      console.log("🔄 Updating view:", currentView.name, "with new settings");
-      const timeoutId = setTimeout(() => {
-        updateView.mutate({
-          id: currentView.id,
-          filters,
-          sort,
-          columns: Object.entries(columnVisibility).map(
-            ([columnId, visible], index) => ({
-              columnId,
-              visible,
-              order: index,
-            }),
-          ),
-          search: searchQuery,
-        });
-      }, 1000);
+      const queue = getViewQueue(currentView.id);
 
-      return () => clearTimeout(timeoutId);
+      // Clear any existing timeout for this view
+      if (queue.debounceTimeout) {
+        clearTimeout(queue.debounceTimeout);
+      }
+
+      console.log("🔄 Scheduling patch-based view update:", {
+        viewId: currentView.id,
+        viewName: currentView.name,
+        pendingPatches: pendingPatchesRef.current.length,
+      });
+
+      queue.debounceTimeout = setTimeout(() => {
+        // Re-check conditions inside timeout in case view changed
+        if (
+          !currentView ||
+          !table?.id ||
+          currentView.id.startsWith("temp-") ||
+          currentView.name === "Grid view"
+        ) {
+          console.log(
+            "⏭️ View conditions changed during debounce, skipping update",
+          );
+          return;
+        }
+
+        const patches = [...pendingPatchesRef.current];
+        pendingPatchesRef.current = []; // Clear the batch
+
+        if (patches.length === 0) {
+          console.log("⏭️ No patches to apply, skipping update");
+          return;
+        }
+
+        const now = Date.now();
+
+        console.log("🚀 Adding patches to queue:", {
+          viewId: currentView.id,
+          version: currentView.version,
+          patches: patches.map((p) => ({ op: p.op, path: p.path })),
+          timeSinceLastUpdate: now - lastUpdateTimeRef.current,
+        });
+
+        // Add patches to this view's queue
+        queue.queuedPatches.push(...patches);
+
+        console.log("📝 Queue status:", {
+          viewId: currentView.id,
+          totalQueued: queue.queuedPatches.length,
+          isProcessing: queue.isProcessing,
+          currentVersion: queue.currentVersion,
+        });
+
+        // Process the queue if not already processing
+        if (!queue.isProcessing) {
+          void processViewUpdateQueue(currentView.id);
+        }
+
+        // Update the last update time
+        lastUpdateTimeRef.current = now;
+
+        // Clear the timeout ref
+        queue.debounceTimeout = null;
+      }, 400); // 400ms debounce to reduce churn for fast typers
     } else if (currentView?.name === "Grid view") {
       console.log(
         "🛡️ Grid view protected from updates - keeping default settings",
       );
     }
-  }, [
-    filters,
-    sort,
-    columnVisibility,
-    searchQuery,
-    currentView,
-    table?.id,
-    updateView,
-  ]);
+  };
+
+  // Patches are now generated at the moment of state change in updateCurrentViewState
+  // No need for a separate effect to detect changes
 
   // Fetch all tables for the base
   const {
@@ -213,13 +706,87 @@ export default function TableDetail() {
   // Auto-select the first view (default "Grid view") when views are loaded
   useEffect(() => {
     if (views && views.length > 0 && !currentView) {
-      setCurrentView(views[0]);
+      console.log(
+        "📋 Views loaded:",
+        views?.map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          version: v.version,
+          hasVersion: "version" in v,
+        })),
+      );
+
+      const defaultView =
+        views.find((v: any) => v.name === "Grid view") ?? views[0];
+      console.log("🎯 Auto-selecting view:", {
+        id: defaultView.id,
+        name: defaultView.name,
+        version: defaultView.version,
+      });
+      setCurrentView(defaultView);
+    }
+  }, [views, currentView]);
+
+  // Initialize queue version from server view when view is selected/loaded
+  useEffect(() => {
+    if (currentView?.version) {
+      const queue = getViewQueue(currentView.id);
+
+      console.log("🎯 Initializing queue version from server view:", {
+        viewId: currentView.id,
+        viewName: currentView.name,
+        serverVersion: currentView.version,
+        queueVersion: queue.currentVersion,
+      });
+
+      // Initialize queue version from server view
+      queue.currentVersion = currentView.version;
+    }
+  }, [currentView?.id, currentView?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync view states with server versions when views are updated
+  useEffect(() => {
+    if (views && currentView) {
+      const serverView = views.find((v: any) => v.id === currentView.id);
+      if (serverView && serverView.version !== currentView.version) {
+        console.log("🔄 Syncing view version from server:", {
+          viewId: currentView.id,
+          oldVersion: currentView.version,
+          newVersion: serverView.version,
+        });
+
+        // Update currentView with the server version
+        setCurrentView(serverView);
+
+        // Update viewStates with the server version
+        setViewStates((prev) => ({
+          ...prev,
+          [currentView.id]: {
+            ...prev[currentView.id],
+            searchQuery: prev[currentView.id]?.searchQuery ?? "",
+            columnVisibility: prev[currentView.id]?.columnVisibility ?? {},
+            sort: prev[currentView.id]?.sort ?? [],
+            filters: prev[currentView.id]?.filters ?? [],
+            version: serverView.version,
+          },
+        }));
+
+        // Update the queue's current version
+        const queue = getViewQueue(currentView.id);
+        queue.currentVersion = serverView.version;
+
+        // Clear any pending patches since we're syncing with server
+        pendingPatchesRef.current = [];
+        console.log("🧹 Cleared pending patches due to version sync");
+      }
     }
   }, [views, currentView]);
 
   // Reset current view when table changes
   useEffect(() => {
     setCurrentView(null);
+    // Clean up all view queues when table changes
+    viewQueuesRef.current.clear();
   }, [id]);
 
   const addTestRows = api.table.addSampleData.useMutation({
@@ -280,6 +847,7 @@ export default function TableDetail() {
         sort: variables.sort,
         columns: variables.columns,
         search: variables.search ?? null,
+        version: 1, // Default version for optimistic view
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -377,6 +945,9 @@ export default function TableDetail() {
         setCurrentView(gridView ?? null);
       }
 
+      // Clean up the queue for the deleted view
+      cleanupViewQueue(variables.id);
+
       // Force a small delay to ensure the UI updates
       setTimeout(() => {
         console.log("🗑️ Optimistic delete - view removed from list");
@@ -444,8 +1015,7 @@ export default function TableDetail() {
       <>
         <Head>
           <title>
-            {isCreating ? "Creating base" : (table?.name ?? "Loading table")} -
-            Airtable Clone
+            {`${isCreating ? "Creating base" : (table?.name ?? "Loading table")} - Airtable Clone`}
           </title>
           <meta
             name="description"
@@ -538,43 +1108,56 @@ export default function TableDetail() {
 
     setCurrentView(view);
 
-    // Apply view settings to current state
-    if (view.name === "Grid view") {
-      // Reset to default settings for Grid view
-      console.log("🔄 Switching to Grid view - resetting to default settings");
-      setFilters([]);
-      setSort([]);
-      setSearchQuery("");
-      // Set all columns to visible for Grid view
-      const defaultVisibility: Record<string, boolean> = {};
-      columns.forEach((column: any) => {
-        defaultVisibility[column.id] = true;
+    // Initialize view state if it doesn't exist
+    if (!viewStates[view.id]) {
+      const initialState = {
+        searchQuery: "",
+        columnVisibility: {} as Record<string, boolean>,
+        sort: [] as SortConfig[],
+        filters: [] as FilterGroup[],
+        version: view.version ?? 1,
+      };
+
+      console.log("🔄 Initializing view state:", {
+        viewId: view.id,
+        viewName: view.name,
+        viewVersion: view.version,
+        initialStateVersion: initialState.version,
       });
-      setColumnVisibility(defaultVisibility);
-    } else {
-      // Apply custom view settings
-      if (view.filters) {
-        setFilters(view.filters as unknown as FilterGroup[]);
-      } else {
-        setFilters([]);
-      }
-      if (view.sort) {
-        setSort(view.sort as unknown as SortConfig[]);
-      } else {
-        setSort([]);
-      }
-      if (view.columns) {
-        const visibility: Record<string, boolean> = {};
-        (view.columns as unknown as any[]).forEach((col: any) => {
-          visibility[col.columnId] = col.visible;
+
+      if (view.name === "Grid view") {
+        // Default settings for Grid view
+        console.log("🔄 Initializing Grid view with default settings");
+        // Set all columns to visible for Grid view
+        columns.forEach((column: any) => {
+          initialState.columnVisibility[column.id] = true;
         });
-        setColumnVisibility(visibility);
-      }
-      if (view.search) {
-        setSearchQuery(view.search);
       } else {
-        setSearchQuery("");
+        // Apply saved view settings
+        console.log("🔄 Initializing custom view with saved settings");
+        if (view.filters) {
+          initialState.filters = view.filters as unknown as FilterGroup[];
+        }
+        if (view.sort) {
+          initialState.sort = view.sort as unknown as SortConfig[];
+        }
+        if (view.columns) {
+          (view.columns as unknown as any[]).forEach((col: any) => {
+            initialState.columnVisibility[col.columnId] = col.visible;
+          });
+        }
+        if (view.search) {
+          initialState.searchQuery = view.search;
+        }
       }
+
+      // Set the initial state for this view
+      setViewStates((prev) => ({
+        ...prev,
+        [view.id]: initialState,
+      }));
+    } else {
+      console.log("🔄 Switching to existing view with preserved state");
     }
   };
 
@@ -657,19 +1240,27 @@ export default function TableDetail() {
         <div className="flex h-full flex-col">
           <TableNavigation
             searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
+            onSearchChange={(query) =>
+              updateCurrentViewState({ searchQuery: query })
+            }
             columns={columns}
             columnVisibility={columnVisibility}
             onColumnVisibilityChange={(columnId, visible) => {
-              setColumnVisibility((prev) => ({
-                ...prev,
-                [columnId]: visible,
-              }));
+              updateCurrentViewState({
+                columnVisibility: {
+                  ...columnVisibility,
+                  [columnId]: visible,
+                },
+              });
             }}
             sort={sort}
-            onSortChange={setSort}
+            onSortChange={(newSort) =>
+              updateCurrentViewState({ sort: newSort })
+            }
             filters={filters}
-            onFiltersChange={setFilters}
+            onFiltersChange={(newFilters) =>
+              updateCurrentViewState({ filters: newFilters })
+            }
             views={views ?? []}
             currentView={currentView}
             onViewSelect={handleViewSelect}
@@ -684,15 +1275,20 @@ export default function TableDetail() {
               columns={columns}
               tableId={table?.id}
               searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
+              onSearchChange={(query) =>
+                updateCurrentViewState({ searchQuery: query })
+              }
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={(columnId, visible) => {
-                setColumnVisibility((prev) => ({
-                  ...prev,
-                  [columnId]: visible,
-                }));
+                updateCurrentViewState({
+                  columnVisibility: {
+                    ...columnVisibility,
+                    [columnId]: visible,
+                  },
+                });
               }}
               sort={sort}
+              filters={filters}
               enableVirtualization={true}
               // Infinite scroll props
               hasNextPage={hasNextPage}

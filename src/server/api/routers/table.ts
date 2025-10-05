@@ -959,43 +959,189 @@ export const tableRouter = createTRPCRouter({
       return result;
     }),
 
-  // Update a view
+  // Update a view with patch-based optimistic concurrency control
   updateView: protectedProcedure
     .input(
       z.object({
         id: z.string(),
-        name: z.string().min(1).max(100).optional(),
-        filters: z.any().optional(),
-        sort: z.any().optional(),
-        columns: z.any().optional(),
-        search: z.string().optional(),
+        version: z.number(),
+        patches: z.array(
+          z.object({
+            op: z.enum(["set", "merge"]),
+            path: z.string(), // e.g., "filters", "sort", "columns", "search"
+            value: z.any(),
+          }),
+        ),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
+      const { id, version, patches } = input;
 
-      // Verify view ownership through table
-      const view = await ctx.prisma.view.findFirst({
+      // CAS+rebase loop - retry with exponential backoff
+      const maxRetries = 3;
+      let retryCount = 0;
+
+      while (retryCount < maxRetries) {
+        try {
+          // Use transaction to ensure atomic patch application
+          const result = await ctx.prisma.$transaction(async (tx: any) => {
+            // First, get the current view with version check
+            const currentView = await tx.view.findFirst({
+              where: {
+                id,
+                version, // Only proceed if version matches (optimistic concurrency)
+                table: {
+                  base: {
+                    userId: ctx.session.user.id, // Verify ownership
+                  },
+                },
+              },
+            });
+
+            if (!currentView) {
+              throw new Error(
+                "CONFLICT: View was modified by another process or not found",
+              );
+            }
+
+            // Apply patches to the current config
+            // eslint-disable-next-line prefer-const
+            let updatedConfig = {
+              filters: currentView.filters,
+              sort: currentView.sort,
+              columns: currentView.columns,
+              search: currentView.search,
+            };
+
+            for (const patch of patches) {
+              if (patch.op === "set") {
+                // Direct assignment
+                (updatedConfig as any)[patch.path] = patch.value;
+              } else if (patch.op === "merge") {
+                // Merge with existing value
+                const currentValue = (updatedConfig as any)[patch.path];
+                if (Array.isArray(currentValue) && Array.isArray(patch.value)) {
+                  // For arrays, replace the entire array
+                  (updatedConfig as any)[patch.path] = patch.value;
+                } else if (
+                  typeof currentValue === "object" &&
+                  typeof patch.value === "object"
+                ) {
+                  // For objects, merge
+                  (updatedConfig as any)[patch.path] = {
+                    ...currentValue,
+                    ...patch.value,
+                  };
+                } else {
+                  // For primitives, replace
+                  (updatedConfig as any)[patch.path] = patch.value;
+                }
+              }
+            }
+
+            // Update the view with merged config and increment version
+            const updatedView = await tx.view.update({
+              where: { id },
+              data: {
+                filters: updatedConfig.filters,
+                sort: updatedConfig.sort,
+                columns: updatedConfig.columns,
+                search: updatedConfig.search,
+                version: { increment: 1 },
+              },
+              include: {
+                table: {
+                  include: {
+                    base: true,
+                  },
+                },
+              },
+            });
+
+            return updatedView;
+          });
+
+          return result;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("CONFLICT")) {
+            retryCount++;
+
+            if (retryCount < maxRetries) {
+              // Exponential backoff: 50ms, 100ms, 200ms
+              const backoffMs = 50 * Math.pow(2, retryCount - 1);
+              console.log(
+                `🔄 CAS retry ${retryCount}/${maxRetries} after ${backoffMs}ms for view ${id}`,
+              );
+
+              // Get the latest version for the next attempt
+              const latestView = await ctx.prisma.view.findFirst({
+                where: {
+                  id,
+                  table: {
+                    base: {
+                      userId: ctx.session.user.id,
+                    },
+                  },
+                },
+                select: { version: true },
+              });
+
+              if (latestView) {
+                // Update the version for the next retry
+                input.version = latestView.version;
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, backoffMs));
+              continue;
+            }
+          }
+
+          // Re-throw if not a conflict or max retries reached
+          throw error;
+        }
+      }
+
+      // This should never be reached, but just in case
+      throw new Error("CAS retry limit exceeded");
+    }),
+
+  // Test endpoint to simulate concurrent updates (for debugging)
+  testConcurrentUpdate: protectedProcedure
+    .input(
+      z.object({
+        viewId: z.string(),
+        version: z.number(),
+        delay: z.number().optional().default(1000),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { viewId, version, delay } = input;
+
+      // Simulate a delay to test concurrent updates
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      // Try to update the view
+      const result = await ctx.prisma.view.updateMany({
         where: {
-          id,
+          id: viewId,
+          version,
           table: {
             base: {
               userId: ctx.session.user.id,
             },
           },
         },
+        data: {
+          version: { increment: 1 },
+          updatedAt: new Date(),
+        },
       });
 
-      if (!view) {
-        throw new Error("View not found");
+      if (result.count === 0) {
+        throw new Error("CONFLICT: View was modified by another process");
       }
 
-      const updatedView = await ctx.prisma.view.update({
-        where: { id },
-        data: updateData,
-      });
-
-      return updatedView;
+      return { success: true, count: result.count };
     }),
 
   // Delete a view - Optimized with raw SQL and default view protection

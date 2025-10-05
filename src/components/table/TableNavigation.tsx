@@ -63,6 +63,7 @@ export function TableNavigation({
   const [showHideFieldsDropdown, setShowHideFieldsDropdown] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  // Initialize filters from parent state
   const [filters, setFilters] = useState<
     Array<{
       id: string;
@@ -80,6 +81,52 @@ export function TableNavigation({
     }>
   >([]);
   const [logicOperator, setLogicOperator] = useState<"and" | "or">("and");
+
+  // Initialize filters from parent state when it changes
+  useEffect(() => {
+    console.log("🔄 TableNavigation: Initializing filters from parent:", {
+      _filters,
+      currentFilters: filters,
+    });
+
+    if (_filters && _filters.length > 0) {
+      // Convert FilterGroup back to internal filter format
+      const firstGroup = _filters[0];
+      if (firstGroup?.conditions && firstGroup.conditions.length > 0) {
+        const convertedFilters = firstGroup.conditions.map((condition) => ({
+          id: condition.id || `filter-${Date.now()}-${Math.random()}`,
+          value: condition.operator as any,
+          columnId: condition.columnId,
+          inputValue: condition.value?.toString() ?? "",
+        }));
+
+        // Only update if the converted filters are actually different
+        const filtersChanged =
+          JSON.stringify(convertedFilters) !== JSON.stringify(filters);
+        if (filtersChanged) {
+          console.log("🔄 Converting filter groups to internal format:", {
+            firstGroup,
+            convertedFilters,
+          });
+          setFilters(convertedFilters);
+          setLogicOperator(firstGroup.logicOperator ?? "and");
+        }
+      } else {
+        // No conditions in the group, but don't clear existing filters if modal is open
+        if (!showFilterDropdown && filters.length > 0) {
+          setFilters([]);
+          setLogicOperator("and");
+        }
+      }
+    } else {
+      // Clear filters if parent has no filters, but only if modal is not open
+      if (!showFilterDropdown && filters.length > 0) {
+        setFilters([]);
+        setLogicOperator("and");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_filters, showFilterDropdown]); // filters intentionally excluded to prevent infinite loop
   const [showCreateViewModal, setShowCreateViewModal] = useState(false);
   const [newViewName, setNewViewName] = useState("");
   const searchRef = useRef<HTMLDivElement>(null);
@@ -187,15 +234,8 @@ export function TableNavigation({
         // Skip filters with no value or no column
         if (!filter.value || !filter.columnId) return false;
 
-        // For conditions that need input values, skip if input is empty
-        const needsInput = !["is_empty", "is_not_empty"].includes(filter.value);
-        if (
-          needsInput &&
-          (!filter.inputValue || filter.inputValue.trim() === "")
-        ) {
-          return false;
-        }
-
+        // Don't filter out filters with empty input values - they represent valid conditions
+        // that just haven't been filled in yet. The DataGrid can handle empty values.
         return true;
       })
       .map((filter) => ({
@@ -222,8 +262,19 @@ export function TableNavigation({
     newFilters: typeof filters,
     newLogicOperator: "and" | "or",
   ) => {
+    console.log("🔍 Filter change in TableNavigation:", {
+      newFilters,
+      newLogicOperator,
+      currentView: currentView?.name,
+    });
+
     setFilters(newFilters);
     setLogicOperator(newLogicOperator);
+
+    // Convert to FilterGroup format and call parent callback
+    const filterGroups = convertToFilterGroups(newFilters, newLogicOperator);
+    console.log("🔍 Converted filter groups:", filterGroups);
+    _onFiltersChange?.(filterGroups);
   };
 
   // Convert filters for the DataGrid

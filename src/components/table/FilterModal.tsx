@@ -85,17 +85,56 @@ export function FilterModal({
   >({});
   const [isUpdating, setIsUpdating] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
+  const prevInitialFiltersRef = useRef<Filter[]>(initialFilters);
+  const currentFiltersRef = useRef<Filter[]>(filters);
 
-  // Update local state when initialFilters prop changes (only when modal opens or when filters are empty)
+  // Update local state when initialFilters prop changes (when modal opens)
   useEffect(() => {
-    if (
-      isOpen &&
-      !isUpdating &&
-      (filters.length === 0 || initialFilters.length === 0)
-    ) {
-      setFilters(initialFilters);
+    console.log("🔄 FilterModal useEffect triggered:", {
+      isOpen,
+      isUpdating,
+      initialFilters,
+      currentFilters: currentFiltersRef.current,
+      filtersChanged:
+        JSON.stringify(initialFilters) !==
+        JSON.stringify(prevInitialFiltersRef.current),
+    });
+
+    if (isOpen && !isUpdating) {
+      // Only update if the initialFilters prop has actually changed
+      const filtersChanged =
+        JSON.stringify(initialFilters) !==
+        JSON.stringify(prevInitialFiltersRef.current);
+
+      if (filtersChanged) {
+        console.log("🔄 FilterModal: Updating filters from props:", {
+          initialFilters,
+          previousInitialFilters: prevInitialFiltersRef.current,
+          isUpdating,
+        });
+
+        // Always use the initialFilters (no default filter creation)
+        console.log("🔄 FilterModal: Using initialFilters:", initialFilters);
+        setFilters(initialFilters);
+
+        prevInitialFiltersRef.current = initialFilters;
+      } else {
+        console.log("🔄 FilterModal: No change detected, skipping update");
+      }
+    } else {
+      console.log(
+        "🔄 FilterModal: Skipping update - isOpen:",
+        isOpen,
+        "isUpdating:",
+        isUpdating,
+      );
     }
-  }, [initialFilters, isOpen, filters.length, isUpdating]);
+  }, [initialFilters, isOpen, isUpdating, columns]);
+
+  // Keep currentFiltersRef in sync with filters state
+  useEffect(() => {
+    currentFiltersRef.current = filters;
+  }, [filters]);
 
   // Update logic operator when prop changes
   useEffect(() => {
@@ -127,8 +166,19 @@ export function FilterModal({
       inputValue: "",
     };
     const updatedFilters = [...filters, newFilter];
+
+    console.log("➕ Adding new filter:", {
+      newFilter,
+      currentFilters: filters,
+      updatedFilters,
+      logicOperator,
+    });
+
+    setIsUpdating(true);
     setFilters(updatedFilters);
     onFiltersChange(updatedFilters, logicOperator);
+    // Reset the updating flag after a short delay
+    setTimeout(() => setIsUpdating(false), 100);
   };
 
   const handleColumnChange = (filterId: string, columnId: string) => {
@@ -159,14 +209,30 @@ export function FilterModal({
     const updatedFilters = filters.map((filter) =>
       filter.id === filterId ? { ...filter, inputValue } : filter,
     );
+    setIsUpdating(true);
     setFilters(updatedFilters);
     onFiltersChange(updatedFilters, logicOperator);
+    // Reset the updating flag after a short delay
+    setTimeout(() => setIsUpdating(false), 100);
   };
 
   const removeFilter = (filterId: string) => {
+    console.log("🗑️ Removing filter:", {
+      filterId,
+      currentFilters: filters,
+      filtersLength: filters.length,
+    });
+    setIsUpdating(true);
     const updatedFilters = filters.filter((filter) => filter.id !== filterId);
+    console.log("Updated filters after removal:", {
+      updatedFilters,
+      updatedLength: updatedFilters.length,
+      willShowEmptyState: updatedFilters.length === 0,
+    });
     setFilters(updatedFilters);
     onFiltersChange(updatedFilters, logicOperator);
+    // Reset the updating flag after a short delay
+    setTimeout(() => setIsUpdating(false), 100);
   };
 
   const handleLogicOperatorChange = (newLogicOperator: LogicOperator) => {
