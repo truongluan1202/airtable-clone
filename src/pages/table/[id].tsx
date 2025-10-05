@@ -348,7 +348,7 @@ export default function TableDetail() {
   const retryWithBackoff = async (
     viewId: string,
     retryFn: () => Promise<void>,
-    maxRetries: number = 3,
+    maxRetries = 3,
   ) => {
     const queue = getViewQueue(viewId);
     const now = Date.now();
@@ -375,15 +375,17 @@ export default function TableDetail() {
       `🔄 Retrying view update (attempt ${queue.retryCount}/${maxRetries}) in ${delay}ms`,
     );
 
-    setTimeout(async () => {
-      try {
-        await retryFn();
-        // Reset retry count on success
-        queue.retryCount = 0;
-      } catch (error) {
-        console.error(`❌ Retry attempt ${queue.retryCount} failed:`, error);
-        // Will be handled by the error handler
-      }
+    setTimeout(() => {
+      void (async () => {
+        try {
+          await retryFn();
+          // Reset retry count on success
+          queue.retryCount = 0;
+        } catch (error) {
+          console.error(`❌ Retry attempt ${queue.retryCount} failed:`, error);
+          // Will be handled by the error handler
+        }
+      })();
     }, delay);
   };
 
@@ -619,7 +621,7 @@ export default function TableDetail() {
 
         // Show user-friendly error message
         const errorMessage =
-          errorData.message || error.message || "An unexpected error occurred";
+          errorData.message ?? error.message ?? "An unexpected error occurred";
         console.log(`❌ Failed to update view: ${errorMessage}`);
 
         const queue = getViewQueue(variables.id);
@@ -945,7 +947,7 @@ export default function TableDetail() {
         }
       });
     }
-  }, [suspendViewSync, currentView, refetchViews, updateView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [suspendViewSync, currentView, refetchViews, updateView]);
 
   const addTestRows = api.table.addSampleData.useMutation({
     onMutate: async (variables) => {
