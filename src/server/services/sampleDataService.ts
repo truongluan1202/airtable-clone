@@ -6,21 +6,21 @@ import { Client } from "pg";
 export interface TableColumn {
   id: string;
   name: string;
-  type: string;
+  type: "TEXT" | "NUMBER";
 }
 
 export interface SampleDataOptions {
   tableId: string;
   columns: TableColumn[];
   count?: number;
-  useFaker?: boolean; // Use faker.js for simple cases, deterministic for bulk
+  useFaker?: boolean; // only for the tiny simple generator
 }
 
 export class SampleDataService {
   constructor(private prisma: PrismaClient) {}
 
   /**
-   * Generate simple sample data for table creation (5 rows using faker.js)
+   * Tiny sample (5 rows) for table creation
    */
   async generateSimpleSampleData(options: SampleDataOptions): Promise<void> {
     const { tableId, columns = [], count = 5 } = options;
@@ -46,7 +46,8 @@ export class SampleDataService {
       const searchTexts: string[] = [];
 
       for (const column of columns) {
-        let value;
+        let value: string | number | null = null;
+
         if (column.type === "TEXT") {
           if (column.name.toLowerCase().includes("name")) {
             value = faker.person.firstName();
@@ -60,9 +61,8 @@ export class SampleDataService {
         }
 
         cache[column.id] = value ?? null;
-        if (value) {
+        if (value !== null && value !== undefined)
           searchTexts.push(String(value));
-        }
 
         cells.push({
           id: createId(),
@@ -75,15 +75,13 @@ export class SampleDataService {
 
       sampleRows.push({
         id: rowId!,
-        tableId: tableId,
-        cache: cache,
+        tableId,
+        cache,
         search: searchTexts.join(" ").toLowerCase(),
       });
     }
 
-    // Bulk insert rows and cells in a single transaction
     await this.prisma.$transaction(async (tx: any) => {
-      // Insert rows
       await tx.row.createMany({
         data: sampleRows.map((row) => ({
           id: row.id,
@@ -93,164 +91,94 @@ export class SampleDataService {
         })),
       });
 
-      // Insert cells
-      await tx.cell.createMany({
-        data: cells,
-      });
+      // (For small seed only) also store cells
+      await tx.cell.createMany({ data: cells });
     });
   }
+
   /**
-   * Stream only row IDs; compute values in PG using md5(rowId||columnId)
-   *
-   * PERFORMANCE NOTES:
-   * - Indexes on "Cell" table are the #1 performance bottleneck
-   * - This method temporarily drops Cell indexes during bulk insert
-   * - 100k rows × 20 columns = 2M Cell inserts
-   * - Realistic performance: 20-40s only if indexes are off and DB has enough I/O/CPU
-   * - Parallel = 1 for safety; try 2 if your DB is beefy
-   * - Uses session_replication_role = replica to bypass FK checks (if allowed)
+   * TURBO BULK LOADER
+   * - Writes ONLY into "Row" (cache jsonb). Zero writes to "Cell".
+   * - Defers "search" computation to a single background UPDATE.
+   * - Passes columns via UNNEST() to avoid scanning "Column" in every batch.
+   * - Parallelizable with N writers; defaults tuned conservatively.
    */
-  async generateBulkSampleData(options: SampleDataOptions): Promise<{
+  async generateBulkSampleDataTurbo(
+    options: SampleDataOptions & {
+      batchSize?: number;
+      parallel?: number;
+    },
+  ): Promise<{
     success: boolean;
     rowsAdded: number;
     status?: string;
     message?: string;
   }> {
-    const { tableId, count = 100 } = options;
+    const {
+      tableId,
+      columns,
+      count = 100,
+      batchSize = 50_000,
+      parallel = 2,
+    } = options;
     if (count <= 0) return { success: true, rowsAdded: 0 };
 
     const writerUrl = process.env.DIRECT_DATABASE_URL!;
-    const batchSize = 100_000;
+    if (!writerUrl) throw new Error("DIRECT_DATABASE_URL is required");
+
+    // Prepare column arrays once
+    const colIds = columns.map((c) => c.id);
+    const colNames = columns.map((c) => c.name);
+    const colTypes = columns.map((c) => c.type);
+
+    // Batch plan
     const totalBatches = Math.ceil(count / batchSize);
     const batches = Array.from({ length: totalBatches }, (_, i) => {
       const start = i * batchSize;
       return { start, count: Math.min(batchSize, count - start) };
     });
-    const parallel = 1; // Start with 1 for safety; try 2 if DB is beefy
 
-    // Get table columns for data generation and cell count calculation
-    const table = await this.prisma.table.findFirst({
-      where: { id: tableId },
-      include: { columns: { orderBy: { createdAt: "asc" } } },
-    });
-    if (!table) throw new Error("Table not found");
-
-    const columns = table.columns;
-    if (columns.length === 0) return { success: true, rowsAdded: 0 };
-
-    // Calculate total cell count (rows × columns) to determine if index dropping is needed
-    const totalCells = count * columns.length;
-    const shouldDropIndexes = totalCells >= 1_000_000; // Only drop indexes for 1M+ cells
-
-    console.log(
-      `Total cells to insert: ${totalCells.toLocaleString()} (${count} rows × ${columns.length} columns)`,
-    );
-    console.log(
-      `Index dropping: ${shouldDropIndexes ? "ENABLED" : "SKIPPED"} (threshold: 1M cells)`,
-    );
-
-    // Handle index operations outside of transaction (CONCURRENTLY requires this)
-    const droppedIndexes: string[] = [];
-
-    if (shouldDropIndexes) {
-      const indexClient = new Client({ connectionString: writerUrl });
-      await indexClient.connect();
-
+    // Worker that opens a single connection and processes many batches
+    const worker = async (
+      client: Client,
+      b: { start: number; count: number },
+    ) => {
+      // One transaction per batch for back-pressure
+      await client.query("BEGIN");
       try {
-        // Drop Cell table indexes temporarily (major performance bottleneck)
-        // Only for large datasets where the overhead is worth it
-        // Query for actual indexes, not constraints
-        const cellIndexes = await indexClient.query(`
-          SELECT i.indexname 
-          FROM pg_indexes i
-          LEFT JOIN pg_constraint c ON c.conname = i.indexname
-          WHERE i.tablename = 'Cell' 
-            AND i.schemaname = 'public'
-            AND c.conname IS NULL  -- Exclude constraints
-            AND i.indexname != 'Cell_rowId_columnId_key'  -- Explicitly exclude unique constraint
-        `);
-
-        for (const idx of cellIndexes.rows) {
-          if (idx.indexname !== "Cell_pkey") {
-            // Keep primary key, drop other indexes
-            try {
-              await indexClient.query(
-                `DROP INDEX CONCURRENTLY IF EXISTS "${idx.indexname}"`,
-              );
-              droppedIndexes.push(idx.indexname);
-              console.log(`Dropped index: ${idx.indexname}`);
-            } catch (e) {
-              console.warn(`Could not drop index ${idx.indexname}:`, e);
-            }
-          } else {
-            console.log(`Keeping primary key: ${idx.indexname}`);
-          }
-        }
-      } finally {
-        await indexClient.end();
-      }
-    } else {
-      console.log(
-        `Skipping index operations for ${totalCells.toLocaleString()} cells (below 1M threshold)`,
-      );
-    }
-
-    const processBatch = async (b: { start: number; count: number }) => {
-      const client = new Client({ connectionString: writerUrl });
-      await client.connect();
-
-      try {
-        await client.query("BEGIN");
+        // Cheap GUCs that are broadly allowed
         await client.query("SET LOCAL synchronous_commit = off");
         await client.query("SET LOCAL wal_compression = on");
-
-        // CRITICAL: Disable FK checks for massive performance gain
-        // This bypasses per-row FK validation
+        // (Optional) helps aggregation; may be ignored by some providers
         try {
-          await client.query("SET LOCAL session_replication_role = replica");
-        } catch (e) {
-          // Some providers forbid this; continue without it
-          console.warn("Could not set session_replication_role = replica:", e);
-        }
+          await client.query(`SET LOCAL work_mem = '64MB'`);
+        } catch {}
 
-        // Pure single SQL: generate row IDs, data, cache, search, and insert everything
+        // NOTE: No "Cell" writes here. Everything goes to "Row". search=NULL (backfilled later)
+        // Columns are passed by UNNEST to avoid touching "Column" table in SQL.
         await client.query(
           `
-WITH 
-  -- Generate row IDs using deterministic sequence (no COPY needed)
-  row_ids AS (
-    SELECT 
-      md5('${tableId}' || ':' || generate_series($2::int, ($2 + $3 - 1)::int)) as id,
-      generate_series($2::int, ($2 + $3 - 1)::int) as seq
-  ),
-  -- Get column definitions
-  cols AS (
-    SELECT c.id, c.name, c.type
-    FROM "Column" c
-    WHERE c."tableId" = $1
-  ),
-  -- Generate all row-column combinations with deterministic hashing
-  vals AS (
-    SELECT
-      r.id AS row_id,
-      c.id AS column_id,
-      c.name,
-      c.type,
-      md5(r.id || ':' || c.id) AS hash_str
-    FROM row_ids r
-    CROSS JOIN cols c
-  ),
--- Convert first 8 hex chars to 32-bit int
-hashed AS (
+WITH cols AS (
+  SELECT * FROM unnest($2::text[], $3::text[], $4::text[]) AS t(id, name, type)
+), row_ids AS (
+  -- Using UUIDs avoids any need to offset counts and guarantees uniqueness
+  SELECT gen_random_uuid()::text AS id
+  FROM generate_series($5::int, $5::int + $6::int - 1)
+), vals AS (
   SELECT
-    row_id,
-    column_id,
-    name,
-    type,
+    r.id AS row_id,
+    c.id AS column_id,
+    c.name,
+    c.type,
+    md5(r.id || ':' || c.id) AS hash_str
+  FROM row_ids r
+  CROSS JOIN cols c
+), hashed AS (
+  SELECT
+    row_id, column_id, name, type,
     ('x' || substr(hash_str, 1, 8))::bit(32)::int AS h32
   FROM vals
-),
-computed AS (
+), computed AS (
   SELECT
     row_id,
     column_id,
@@ -277,142 +205,134 @@ computed AS (
       ELSE NULL
     END AS v_number
   FROM hashed
-),
-ins_rows AS (
-  INSERT INTO "Row"(id, "tableId", cache, search, "createdAt", "updatedAt")
-  SELECT
-    r.id,
-    $1::text,
-    jsonb_object_agg(c.column_id,
-      COALESCE(to_jsonb(c.v_text), to_jsonb(c.v_number), 'null'::jsonb)
-    ) AS cache,
-    lower(string_agg(COALESCE(c.v_text, c.v_number::text, ''), ' ')) AS search,
-    now(), now()
-  FROM row_ids r
-  JOIN computed c ON c.row_id = r.id
-  GROUP BY r.id
-  RETURNING 1
 )
-INSERT INTO "Cell"(id, "rowId", "columnId", "vText", "vNumber", "createdAt", "updatedAt")
+INSERT INTO "Row"(id, "tableId", cache, search, "createdAt", "updatedAt")
 SELECT
-  md5(clock_timestamp()::text || row_id || column_id), -- text id; use gen_random_uuid() if you prefer uuid
-  row_id,
-  column_id,
-  v_text,
-  v_number,
+  c.row_id,
+  $1::text,
+  jsonb_object_agg(c.column_id,
+    COALESCE(to_jsonb(c.v_text), to_jsonb(c.v_number), 'null'::jsonb)
+  ) AS cache,
+  NULL,               -- defer search
   now(),
   now()
-FROM computed;
+FROM computed c
+GROUP BY c.row_id
+ON CONFLICT (id) DO NOTHING
           `,
-          [tableId, b.start, b.count],
+          [tableId, colIds, colNames, colTypes, b.start, b.count],
         );
 
         await client.query("COMMIT");
-      } catch (err) {
+      } catch (e) {
         try {
           await client.query("ROLLBACK");
         } catch {}
-        throw err;
-      } finally {
-        try {
-          await client.end();
-        } catch {}
+        throw e;
       }
     };
 
-    // tiny runner
-    const runWithConcurrency = async <T>(
-      items: T[],
-      concurrency: number,
-      worker: (item: T) => Promise<void>,
-    ) => {
-      const q = items.slice();
-      const n = Math.min(concurrency, q.length);
+    // Run with N writers; each writer reuses one connection
+    const runWithConcurrency = async () => {
+      const q = batches.slice();
+      const n = Math.min(parallel, q.length || 1);
+
       await Promise.all(
         Array.from({ length: n }, async () => {
-          while (q.length) await worker(q.shift()!);
+          const client = new Client({ connectionString: writerUrl });
+          await client.connect();
+          try {
+            while (q.length) {
+              const next = q.shift()!;
+              await worker(client, next);
+            }
+          } finally {
+            try {
+              await client.end();
+            } catch {}
+          }
         }),
       );
     };
 
-    await runWithConcurrency(batches, parallel, processBatch);
+    await runWithConcurrency();
 
-    // Recreate dropped indexes for normal operation (outside transaction)
-    // Start index recreation in background - don't wait for completion
-    if (shouldDropIndexes && droppedIndexes.length > 0) {
-      console.log(
-        `Starting background recreation of ${droppedIndexes.length} indexes...`,
-      );
-
-      // Don't await this - let it run in background
-      recreateIndexesInBackground(droppedIndexes, writerUrl).catch((error) => {
-        console.error("Background index recreation failed:", error);
-      });
-    } else if (!shouldDropIndexes) {
-      console.log("No index recreation needed (indexes were not dropped)");
-    }
-
-    // Note: Cell_rowId_columnId_key is now a UNIQUE CONSTRAINT in the Prisma schema
-    // It's automatically preserved during index dropping since we exclude constraints
-    // The unique constraint is never dropped, so no need to recreate it
-    console.log(
-      "Cell_rowId_columnId_key unique constraint is preserved (never dropped)",
+    // Backfill search in the background from cache (fast single UPDATE)
+    backfillSearchFromCacheInBackground(tableId, writerUrl).catch((err) =>
+      console.error("Background search backfill failed:", err),
     );
+
+    // Optional (recommended) to make immediate reads snappy
+    analyzeInBackground(writerUrl).catch((err) => {
+      console.warn("Background analyze failed:", err);
+    });
 
     return {
       success: true,
       rowsAdded: count,
       status: "completed",
-      message: shouldDropIndexes
-        ? `Successfully added ${count} rows. Indexes are being rebuilt in the background for optimal performance.`
-        : `Successfully added ${count} rows. No index optimization needed for this dataset size.`,
+      message:
+        "Turbo mode: inserted rows with JSON cache only. Search is backfilling in background.",
     };
   }
 }
 
-// Background index recreation function
-async function recreateIndexesInBackground(
-  droppedIndexes: string[],
+/** Compute Row.search from Row.cache in one pass (background) */
+async function backfillSearchFromCacheInBackground(
+  tableId: string,
   writerUrl: string,
 ) {
-  const recreateClient = new Client({ connectionString: writerUrl });
-  await recreateClient.connect();
-
+  const client = new Client({ connectionString: writerUrl });
+  await client.connect();
   try {
-    console.log(`Recreating ${droppedIndexes.length} indexes in background...`);
-
-    // Recreate indexes in parallel for faster completion
-    const recreatePromises = droppedIndexes.map(async (indexName) => {
-      try {
-        // Recreate common Cell indexes based on naming patterns
-        if (indexName.includes("rowId") && indexName.includes("columnId")) {
-          await recreateClient.query(
-            `CREATE INDEX CONCURRENTLY IF NOT EXISTS "${indexName}" ON "Cell" ("rowId", "columnId")`,
-          );
-        } else if (indexName.includes("rowId")) {
-          await recreateClient.query(
-            `CREATE INDEX CONCURRENTLY IF NOT EXISTS "${indexName}" ON "Cell" ("rowId")`,
-          );
-        } else if (indexName.includes("columnId")) {
-          await recreateClient.query(
-            `CREATE INDEX CONCURRENTLY IF NOT EXISTS "${indexName}" ON "Cell" ("columnId")`,
-          );
-        } else {
-          // For custom indexes, you may need to manually recreate them
-          console.warn(
-            `Could not automatically recreate index: ${indexName} - please recreate manually if needed`,
-          );
-        }
-        console.log(`Recreated index: ${indexName}`);
-      } catch (e) {
-        console.warn(`Could not recreate index ${indexName}:`, e);
-      }
-    });
-
-    await Promise.all(recreatePromises);
-    console.log("Background index recreation completed");
+    await client.query(
+      `
+      UPDATE "Row" r
+      SET search = sub.s,
+          "updatedAt" = now()
+      FROM (
+        SELECT
+          id,
+          lower(
+            string_agg(
+              NULLIF(
+                CASE
+                  WHEN jsonb_typeof(value) = 'string' THEN value::text
+                  WHEN jsonb_typeof(value) = 'number' THEN (value::numeric)::text
+                  ELSE ''
+                END, ''
+              ), ' '
+            )
+          ) AS s
+        FROM (
+          SELECT id, key, r.cache->key AS value
+          FROM "Row" r
+          CROSS JOIN LATERAL jsonb_object_keys(r.cache) AS key
+          WHERE r."tableId" = $1 AND (r.search IS NULL OR r.search = '')
+        ) kv
+        GROUP BY id
+      ) sub
+      WHERE r.id = sub.id
+    `,
+      [tableId],
+    );
   } finally {
-    await recreateClient.end();
+    try {
+      await client.end();
+    } catch {}
+  }
+}
+
+/** Analyze to improve immediate read performance */
+async function analyzeInBackground(writerUrl: string) {
+  const client = new Client({ connectionString: writerUrl });
+  await client.connect();
+  try {
+    await client.query(`ANALYZE "Row";`);
+  } finally {
+    try {
+      await client.end();
+    } catch {}
   }
 }
 

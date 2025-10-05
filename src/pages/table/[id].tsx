@@ -33,6 +33,16 @@ export default function TableDetail() {
     useState("Adding rows...");
   const [isLoadingNewView, setIsLoadingNewView] = useState(false);
   const [isLoadingViewData, setIsLoadingViewData] = useState(false);
+  const [suspendViewSync, setSuspendViewSync] = useState(false);
+  // Buffered patches during view sync suspension
+  const bufferedPatchesRef = useRef<
+    Array<{
+      op: "set" | "merge";
+      path: string;
+      value: any;
+      timestamp: number;
+    }>
+  >([]);
   // View-related state
   const [currentView, setCurrentView] = useState<TableView | null>(null);
 
@@ -303,6 +313,8 @@ export default function TableDetail() {
           timestamp: number;
         }> | null;
         debounceTimeout: NodeJS.Timeout | null;
+        retryCount: number;
+        lastRetryTime: number;
       }
     >
   >(new Map());
@@ -316,6 +328,8 @@ export default function TableDetail() {
         currentVersion: 1,
         inFlightPatches: null,
         debounceTimeout: null,
+        retryCount: 0,
+        lastRetryTime: 0,
       });
     }
     return viewQueuesRef.current.get(viewId)!;
@@ -328,6 +342,49 @@ export default function TableDetail() {
       clearTimeout(queue.debounceTimeout);
     }
     viewQueuesRef.current.delete(viewId);
+  };
+
+  // Retry with exponential backoff
+  const retryWithBackoff = async (
+    viewId: string,
+    retryFn: () => Promise<void>,
+    maxRetries: number = 3,
+  ) => {
+    const queue = getViewQueue(viewId);
+    const now = Date.now();
+
+    // Reset retry count if enough time has passed (5 minutes)
+    if (now - queue.lastRetryTime > 5 * 60 * 1000) {
+      queue.retryCount = 0;
+    }
+
+    if (queue.retryCount >= maxRetries) {
+      console.log(`❌ Max retries (${maxRetries}) reached for view ${viewId}`);
+      queue.isProcessing = false;
+      queue.inFlightPatches = null;
+      return;
+    }
+
+    queue.retryCount++;
+    queue.lastRetryTime = now;
+
+    // Exponential backoff: 1s, 2s, 4s, 8s...
+    const delay = Math.min(1000 * Math.pow(2, queue.retryCount - 1), 8000);
+
+    console.log(
+      `🔄 Retrying view update (attempt ${queue.retryCount}/${maxRetries}) in ${delay}ms`,
+    );
+
+    setTimeout(async () => {
+      try {
+        await retryFn();
+        // Reset retry count on success
+        queue.retryCount = 0;
+      } catch (error) {
+        console.error(`❌ Retry attempt ${queue.retryCount} failed:`, error);
+        // Will be handled by the error handler
+      }
+    }, delay);
   };
 
   // Coalesce patches - last write per op:path wins
@@ -359,6 +416,12 @@ export default function TableDetail() {
 
   // Process the view update queue for a specific view
   const processViewUpdateQueue = async (viewId: string) => {
+    // Return if view sync is suspended
+    if (suspendViewSync) {
+      console.log("⏸️ View sync suspended, skipping queue processing");
+      return;
+    }
+
     const queue = getViewQueue(viewId);
 
     if (
@@ -423,11 +486,21 @@ export default function TableDetail() {
 
   // Update current view when filters, sort, or column visibility changes
   const updateView = api.table.updateView.useMutation({
-    onSuccess: async (updatedView, variables) => {
+    onSuccess: async (response, variables) => {
+      // Handle both old format (updatedView) and new format (response)
+      const updatedView = response.success
+        ? {
+            id: response.id,
+            version: response.version,
+            config: response.config,
+          }
+        : response;
+
       console.log("✅ View updated successfully:", {
         viewId: updatedView.id,
         newVersion: updatedView.version,
         sentVersion: variables.version,
+        success: response.success,
       });
 
       // Only update currentView if this is still the current view
@@ -463,9 +536,25 @@ export default function TableDetail() {
         error: error.message,
       });
 
-      if (error.message.includes("CONFLICT")) {
+      // Handle structured error responses from server
+      let errorData;
+      try {
+        errorData = JSON.parse(error.message);
+      } catch {
+        errorData = { message: error.message };
+      }
+
+      if (
+        error.message.includes("CONFLICT") ||
+        errorData.error === "CONFLICT"
+      ) {
         console.log(
           "🔄 Conflict detected, refetching view and retrying same batch",
+        );
+
+        // Show user-friendly message
+        console.log(
+          "ℹ️ View was updated by another process. Retrying automatically...",
         );
 
         // Refetch the view to get the latest version
@@ -505,20 +594,14 @@ export default function TableDetail() {
             // Update the queue's current version
             queue.currentVersion = updatedView.version;
 
-            // Retry with the same in-flight patches (don't drop them!)
-            updateView
-              .mutateAsync({
+            // Retry with the same in-flight patches using exponential backoff
+            await retryWithBackoff(variables.id, async () => {
+              await updateView.mutateAsync({
                 id: updatedView.id,
                 version: updatedView.version,
-                patches: queue.inFlightPatches,
-              })
-              .catch((retryError) => {
-                console.error("❌ Retry update failed:", retryError);
-                // Mark processing as complete and process next batch
-                queue.isProcessing = false;
-                queue.inFlightPatches = null;
-                void processViewUpdateQueue(variables.id);
+                patches: queue.inFlightPatches!,
               });
+            });
           } else {
             console.error("❌ No in-flight patches found for retry");
             queue.isProcessing = false;
@@ -533,6 +616,12 @@ export default function TableDetail() {
         }
       } else {
         console.error("❌ Non-conflict error:", error);
+
+        // Show user-friendly error message
+        const errorMessage =
+          errorData.message || error.message || "An unexpected error occurred";
+        console.log(`❌ Failed to update view: ${errorMessage}`);
+
         const queue = getViewQueue(variables.id);
         queue.isProcessing = false;
         queue.inFlightPatches = null;
@@ -575,6 +664,26 @@ export default function TableDetail() {
   const addPatch = (op: "set" | "merge", path: string, value: any) => {
     const now = Date.now();
 
+    // If view sync is suspended, buffer patches instead of adding to pending
+    if (suspendViewSync) {
+      console.log("⏸️ View sync suspended, buffering patch:", { op, path });
+
+      // Remove any existing buffered patches for the same path (latest wins)
+      bufferedPatchesRef.current = bufferedPatchesRef.current.filter(
+        (patch) => patch.path !== path,
+      );
+
+      // Add to buffered patches
+      bufferedPatchesRef.current.push({
+        op,
+        path,
+        value,
+        timestamp: now,
+      });
+
+      return;
+    }
+
     // Remove any existing patches for the same path (latest wins)
     pendingPatchesRef.current = pendingPatchesRef.current.filter(
       (patch) => patch.path !== path,
@@ -605,6 +714,12 @@ export default function TableDetail() {
 
   // Function to trigger the debounced save
   const triggerDebouncedSave = () => {
+    // Short-circuit if view sync is suspended
+    if (suspendViewSync) {
+      console.log("⏸️ View sync suspended, skipping debounced save");
+      return;
+    }
+
     if (
       currentView &&
       table?.id &&
@@ -789,21 +904,64 @@ export default function TableDetail() {
     viewQueuesRef.current.clear();
   }, [id]);
 
+  // Handle view sync resumption and flush buffered patches
+  useEffect(() => {
+    if (!suspendViewSync && bufferedPatchesRef.current.length > 0) {
+      console.log(
+        `🔄 Resuming view sync, flushing ${bufferedPatchesRef.current.length} buffered patches`,
+      );
+
+      // Get fresh view version from server
+      void refetchViews().then((result) => {
+        if (result.data && currentView) {
+          const serverView = result.data.find(
+            (v: any) => v.id === currentView.id,
+          );
+          if (serverView) {
+            // Update current view with fresh version
+            setCurrentView(serverView);
+
+            // Coalesce buffered patches (last-write-wins per path)
+            const coalescedPatches = coalescePatches(
+              bufferedPatchesRef.current,
+            );
+
+            if (coalescedPatches.length > 0) {
+              console.log(
+                `🚀 Flushing ${coalescedPatches.length} coalesced patches after resume`,
+              );
+
+              // Send coalesced patches with fresh version
+              updateView.mutate({
+                id: currentView.id,
+                version: serverView.version,
+                patches: coalescedPatches,
+              });
+            }
+
+            // Clear buffered patches
+            bufferedPatchesRef.current = [];
+          }
+        }
+      });
+    }
+  }, [suspendViewSync, currentView, refetchViews, updateView]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const addTestRows = api.table.addSampleData.useMutation({
     onMutate: async (variables) => {
       setIsBulkLoading(true);
+      setSuspendViewSync(true); // Suspend view sync during bulk operation
       setBulkLoadingMessage(`Adding ${variables.count ?? 0} test rows...`);
     },
     onSuccess: async (data) => {
       setIsBulkLoading(false);
       setBulkLoadingMessage("Data added! Refreshing...");
 
-      // Optimized: Invalidate and refetch data instead of full page reload
-      // This allows progressive loading while indexes are being rebuilt
+      // Optimized: Invalidate only rows/rowCount, NOT views (prevents flicker and accidental re-enable)
       await Promise.all([
         utils.table.getByIdPaginated.invalidate({ id: id as string }),
         utils.table.getRowCount.invalidate({ id: id as string }),
-        utils.table.getViews.invalidate({ tableId: id as string }),
+        // Don't invalidate getViews during bulk - it can cause flicker and re-enable writes
       ]);
 
       // Show success message with progressive loading feedback
@@ -816,6 +974,8 @@ export default function TableDetail() {
 
       setTimeout(() => {
         setBulkLoadingMessage("🎉 Ready! Data is now fully optimized.");
+        // Resume view sync after bulk operation completes
+        setSuspendViewSync(false);
       }, 3000);
 
       setTimeout(() => {

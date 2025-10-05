@@ -407,7 +407,7 @@ export const tableRouter = createTRPCRouter({
       });
     }),
 
-  // Add sample data to existing table
+  // Add sample data to existing table (Turbo mode + server-side bulk lock)
   addSampleData: protectedProcedure
     .input(
       z.object({
@@ -416,7 +416,7 @@ export const tableRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify ownership & columns (via Prisma)
+      // Verify ownership & load columns (via Prisma)
       const table = await ctx.prisma.table.findFirst({
         where: { id: input.tableId, base: { userId: ctx.session.user.id } },
         include: { columns: true },
@@ -424,18 +424,79 @@ export const tableRouter = createTRPCRouter({
       if (!table) throw new Error("Table not found");
       if (input.count <= 0) return { success: true, rowsAdded: 0 };
 
-      // Use the dedicated service for bulk sample data generation
-      const sampleDataService = createSampleDataService(ctx.prisma);
-      return await sampleDataService.generateBulkSampleData({
-        tableId: table.id,
-        columns: table.columns.map((col: any) => ({
-          id: col.id,
-          name: col.name,
-          type: col.type,
-        })),
-        count: input.count,
-        useFaker: false, // Use deterministic generation for bulk
-      });
+      // ---- Server-side bulk lock (soft lock via DB row) ----
+      const lockKey = `bulk_lock_${input.tableId}`;
+      // Dynamic expiry: ~10 min per 100k rows, min 5 min
+      const minutes = Math.max(5, Math.ceil(input.count / 100000) * 10);
+      const lockExpiry = new Date(Date.now() + minutes * 60 * 1000);
+
+      try {
+        // Create or refresh the lock
+        await ctx.prisma.$executeRaw`
+      INSERT INTO "BulkLock" (id, "tableId", "expiresAt", "createdAt")
+      VALUES (${lockKey}, ${input.tableId}, ${lockExpiry}, NOW())
+      ON CONFLICT (id) DO UPDATE
+      SET "expiresAt" = EXCLUDED."expiresAt"
+    `;
+
+        console.log(
+          `🔒 BULK LOCK ACTIVE: ${input.tableId} (expires: ${lockExpiry.toISOString()})`,
+        );
+
+        // ---- TURBO bulk insert: write only "Row.cache", skip "Cell" ----
+        const sampleDataService = createSampleDataService(ctx.prisma);
+        const result = await sampleDataService.generateBulkSampleDataTurbo({
+          tableId: table.id,
+          columns: table.columns.map((col: any) => ({
+            id: col.id,
+            name: col.name,
+            type: col.type as "TEXT" | "NUMBER",
+          })),
+          count: input.count,
+          // Tune if DB is beefy:
+          batchSize: 50_000,
+          parallel: 2,
+        });
+
+        return result;
+      } finally {
+        // Always release the lock
+        await ctx.prisma.$executeRaw`
+      DELETE FROM "BulkLock" WHERE id = ${lockKey}
+    `;
+        console.log(`🔓 BULK LOCK RELEASED: ${input.tableId}`);
+      }
+    }),
+
+  // Check if view updates are disabled due to bulk operations
+  checkBulkLock: protectedProcedure
+    .input(z.object({ tableId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const row = await ctx.prisma.$queryRaw<
+        Array<{ id: string; expiresAt: Date }>
+      >`
+    SELECT id, "expiresAt"
+    FROM "BulkLock"
+    WHERE "tableId" = ${input.tableId}
+      AND "expiresAt" > NOW()
+    LIMIT 1
+  `;
+
+      if (row.length === 0) {
+        return { isLocked: false, lockInfo: null };
+      }
+
+      const expiresAt = row[0].expiresAt;
+      const expiresIn = Math.max(0, expiresAt.getTime() - Date.now());
+
+      return {
+        isLocked: true,
+        lockInfo: {
+          id: row[0].id,
+          expiresAt,
+          expiresIn,
+        },
+      };
     }),
 
   // Update a cell value - Optimized with single transaction
@@ -977,6 +1038,27 @@ export const tableRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { id, version, patches } = input;
 
+      // Check for bulk lock - skip view updates during bulk operations
+      const bulkLock = await ctx.prisma.$queryRaw<
+        Array<{ id: string; expiresAt: Date }>
+      >`
+        SELECT id, "expiresAt" FROM "BulkLock" 
+        WHERE "tableId" = (SELECT "tableId" FROM "View" WHERE id = ${id})
+          AND "expiresAt" > NOW()
+        LIMIT 1
+      `;
+
+      if (bulkLock.length > 0) {
+        console.log(
+          `⏸️ View update skipped due to bulk operation in progress (table: ${bulkLock[0].id.split("_")[2]}, expires: ${bulkLock[0].expiresAt.toISOString()})`,
+        );
+        return {
+          id,
+          version,
+          message: "View update skipped during bulk operation",
+        };
+      }
+
       // CAS+rebase loop - retry with exponential backoff
       const maxRetries = 3;
       let retryCount = 0;
@@ -999,9 +1081,14 @@ export const tableRouter = createTRPCRouter({
             });
 
             if (!currentView) {
-              throw new Error(
-                "CONFLICT: View was modified by another process or not found",
-              );
+              return {
+                success: false,
+                error: "CONFLICT",
+                message: "View was modified by another process or not found",
+                shouldRetry: true,
+                id,
+                version: input.version,
+              };
             }
 
             // Apply patches to the current config
@@ -1058,7 +1145,17 @@ export const tableRouter = createTRPCRouter({
               },
             });
 
-            return updatedView;
+            return {
+              success: true,
+              id: updatedView.id,
+              version: updatedView.version,
+              config: {
+                filters: updatedView.filters,
+                sort: updatedView.sort,
+                columns: updatedView.columns,
+                search: updatedView.search,
+              },
+            };
           });
 
           return result;
@@ -1121,7 +1218,7 @@ export const tableRouter = createTRPCRouter({
       await new Promise((resolve) => setTimeout(resolve, delay));
 
       // Try to update the view
-      const result = await ctx.prisma.view.updateMany({
+      await ctx.prisma.view.updateMany({
         where: {
           id: viewId,
           version,
@@ -1137,11 +1234,8 @@ export const tableRouter = createTRPCRouter({
         },
       });
 
-      if (result.count === 0) {
-        throw new Error("CONFLICT: View was modified by another process");
-      }
-
-      return { success: true, count: result.count };
+      // This should never be reached, but just in case
+      throw new Error("CONFLICT: View update failed after maximum retries");
     }),
 
   // Delete a view - Optimized with raw SQL and default view protection
