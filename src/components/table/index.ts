@@ -10,6 +10,7 @@ export { DataGridContextMenu } from "./DataGridContextMenu";
 export { AddColumnDropdown } from "./AddColumnDropdown";
 export { HideFieldsDropdown } from "./HideFieldsModal";
 export { ColumnDropdown } from "./ColumnDropdown";
+export { CreateViewModal } from "./CreateViewModal";
 export { SortDropdown } from "./SortDropdown";
 export { FilterModal } from "./FilterModal";
 export { TableSkeleton } from "./TableSkeleton";

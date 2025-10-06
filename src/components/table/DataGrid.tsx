@@ -21,6 +21,7 @@ export function DataGrid({
   onSearchChange: _onSearchChange,
   columnVisibility = {},
   onColumnVisibilityChange: _onColumnVisibilityChange,
+  onBatchColumnVisibilityChange: _onBatchColumnVisibilityChange,
   sort = [],
   filters = [],
   enableVirtualization = true,
@@ -217,6 +218,34 @@ export function DataGrid({
     handleCellSelect,
   ]);
 
+  // Function to save current cell value and stop editing (for Tab navigation)
+  const handleSaveAndStopEdit = useCallback(() => {
+    if (!editingCell) return;
+
+    // Get the current cell value from the input element
+    const inputElement = document.querySelector('input[type="text"]:focus');
+    if (inputElement) {
+      const currentValue = (inputElement as HTMLInputElement).value;
+      // Update the cell with the current value
+      handleCellUpdate(
+        editingCell.rowId,
+        editingCell.columnId,
+        currentValue,
+        columns,
+        setCellValues,
+      );
+    }
+
+    // Stop editing
+    handleCellStopEdit();
+  }, [
+    editingCell,
+    handleCellUpdate,
+    columns,
+    setCellValues,
+    handleCellStopEdit,
+  ]);
+
   // Create table columns using the custom hook
   const tableColumns = TableColumns.useTableColumns({
     visibleColumns,
@@ -297,6 +326,7 @@ export function DataGrid({
     editingCell,
     onStopEdit: handleCellStopEditWithNavigation,
     onKeyboardFocus: () => setIsKeyboardFocused(true),
+    onSaveAndStopEdit: handleSaveAndStopEdit,
   });
 
   // Auto-focus table when it loads and has data

@@ -14,6 +14,41 @@ export default function TableDetail() {
   const router = useRouter();
   const { id } = router.query;
   const utils = api.useUtils();
+
+  // Graceful error handling utility
+  const handleErrorGracefully = async (error: any, operation: string) => {
+    console.error(`❌ ${operation} failed:`, error);
+
+    // Check if it's a structured error response
+    let errorData;
+    try {
+      errorData = JSON.parse(error.message);
+    } catch {
+      errorData = { message: error.message };
+    }
+
+    // Error handled gracefully, refreshing data
+
+    // If the error indicates we should refetch, do so
+    if (errorData.shouldRefetch !== false) {
+      try {
+        await Promise.all([
+          utils.table.getByIdPaginated.invalidate({ id: id as string }),
+          utils.table.getViews.invalidate({ tableId: id as string }),
+          utils.table.getRowCount.invalidate({ id: id as string }),
+          utils.table.getByBaseId.invalidate({ baseId: table?.baseId ?? "" }),
+        ]);
+        // Data refreshed successfully
+      } catch (refetchError) {
+        console.error(
+          `❌ Failed to refresh data after ${operation} error:`,
+          refetchError,
+        );
+        // If refetch fails, show a more serious error message
+        // Unable to refresh data, user should reload page
+      }
+    }
+  };
   // Per-view state management - each view maintains its own state
   const [viewStates, setViewStates] = useState<
     Record<
@@ -74,7 +109,62 @@ export default function TableDetail() {
   const sort = currentViewState.sort;
   const filters = currentViewState.filters;
 
-  // Update current view's state with proper merging and patch generation
+  // Optimized comparison functions to replace expensive JSON.stringify
+  const areValuesEqual = (a: any, b: any): boolean => {
+    if (a === b) return true;
+    if (a == null || b == null) return a === b;
+    if (typeof a !== typeof b) return false;
+
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false;
+      return a.every((item, index) => areValuesEqual(item, b[index]));
+    }
+
+    if (typeof a === "object") {
+      const keysA = Object.keys(a);
+      const keysB = Object.keys(b);
+      if (keysA.length !== keysB.length) return false;
+      return keysA.every((key) => areValuesEqual(a[key], b[key]));
+    }
+
+    return false;
+  };
+
+  const areFiltersEqual = (a: FilterGroup[], b: FilterGroup[]): boolean => {
+    if (a === b) return true;
+    if (!a || !b) return a === b;
+    if (a.length !== b.length) return false;
+
+    return a.every((filterA, index) => {
+      const filterB = b[index];
+      if (!filterB) return false;
+
+      return (
+        filterA.id === filterB.id &&
+        filterA.logicOperator === filterB.logicOperator &&
+        areValuesEqual(filterA.conditions, filterB.conditions)
+      );
+    });
+  };
+
+  const areColumnArraysEqual = (a: any[], b: any[]): boolean => {
+    if (a === b) return true;
+    if (!a || !b) return a === b;
+    if (a.length !== b.length) return false;
+
+    return a.every((itemA, index) => {
+      const itemB = b[index];
+      if (!itemB) return false;
+
+      return (
+        itemA.columnId === itemB.columnId &&
+        itemA.visible === itemB.visible &&
+        itemA.order === itemB.order
+      );
+    });
+  };
+
+  // Update current view's state with proper merging and patch generation - optimized for performance
   const updateCurrentViewState = (
     updates: Partial<{
       searchQuery: string;
@@ -84,12 +174,6 @@ export default function TableDetail() {
     }>,
   ) => {
     if (!currentView) return;
-
-    console.log("🔄 Updating view state:", {
-      viewId: currentView.id,
-      viewName: currentView.name,
-      updates,
-    });
 
     // Update the state using functional setter to ensure we get the latest state
     setViewStates((prev) => {
@@ -144,21 +228,22 @@ export default function TableDetail() {
         }
       }
 
-      // Generate patches for each changed field by diffing prevState → nextState
+      // Generate patches for each changed field by diffing prevState → nextState - optimized
       Object.entries(updates).forEach(([key, value]) => {
         if (value !== undefined) {
           let hasChanged = false;
 
           if (key === "filters") {
-            // For filters, compare the merged result
-            hasChanged =
-              JSON.stringify(currentState.filters) !==
-              JSON.stringify(newState.filters);
+            // For filters, compare the merged result using optimized comparison
+            hasChanged = !areFiltersEqual(
+              currentState.filters,
+              newState.filters,
+            );
             if (hasChanged) {
               addPatch("set", "filters", newState.filters);
             }
           } else if (key === "columnVisibility") {
-            // Convert columnVisibility to columns array format
+            // Convert columnVisibility to columns array format - only when needed
             const columnsArray = Object.entries(value).map(
               ([columnId, visible], index) => ({
                 columnId,
@@ -166,16 +251,20 @@ export default function TableDetail() {
                 order: index,
               }),
             );
-            hasChanged =
-              JSON.stringify(currentState[key as keyof typeof currentState]) !==
-              JSON.stringify(columnsArray);
+            // Optimized comparison for column visibility
+            hasChanged = !areColumnArraysEqual(
+              currentState[key as keyof typeof currentState] as any,
+              columnsArray,
+            );
             if (hasChanged) {
               addPatch("set", "columns", columnsArray);
             }
           } else {
-            hasChanged =
-              JSON.stringify(currentState[key as keyof typeof currentState]) !==
-              JSON.stringify(value);
+            // Optimized comparison for sort and search
+            hasChanged = !areValuesEqual(
+              currentState[key as keyof typeof currentState],
+              value,
+            );
             if (hasChanged) {
               addPatch("set", key, value);
             }
@@ -359,7 +448,7 @@ export default function TableDetail() {
     }
 
     if (queue.retryCount >= maxRetries) {
-      console.log(`❌ Max retries (${maxRetries}) reached for view ${viewId}`);
+      // Max retries reached, stopping queue processing
       queue.isProcessing = false;
       queue.inFlightPatches = null;
       return;
@@ -371,9 +460,7 @@ export default function TableDetail() {
     // Exponential backoff: 1s, 2s, 4s, 8s...
     const delay = Math.min(1000 * Math.pow(2, queue.retryCount - 1), 8000);
 
-    console.log(
-      `🔄 Retrying view update (attempt ${queue.retryCount}/${maxRetries}) in ${delay}ms`,
-    );
+    // Retrying view update with exponential backoff
 
     setTimeout(() => {
       void (async () => {
@@ -420,7 +507,7 @@ export default function TableDetail() {
   const processViewUpdateQueue = async (viewId: string) => {
     // Return if view sync is suspended
     if (suspendViewSync) {
-      console.log("⏸️ View sync suspended, skipping queue processing");
+      // View sync suspended, skipping queue processing
       return;
     }
 
@@ -436,10 +523,7 @@ export default function TableDetail() {
 
     // Only process if this is still the current view
     if (currentView.id !== viewId) {
-      console.log("⏭️ View switched, aborting queue processing for old view:", {
-        targetViewId: viewId,
-        currentViewId: currentView.id,
-      });
+      // View switched, aborting queue processing for old view
       return;
     }
 
@@ -455,7 +539,7 @@ export default function TableDetail() {
 
     // Skip sending if no meaningful patches after coalescing
     if (coalescedPatches.length === 0) {
-      console.log("⏭️ No meaningful patches after coalescing, skipping send");
+      // No meaningful patches after coalescing, skipping send
       queue.isProcessing = false;
       return;
     }
@@ -463,13 +547,7 @@ export default function TableDetail() {
     // Store in-flight patches for retry on conflict
     queue.inFlightPatches = coalescedPatches;
 
-    console.log("🔄 Processing view update queue:", {
-      viewId: viewId,
-      originalPatchCount: patches.length,
-      coalescedPatchCount: coalescedPatches.length,
-      queueVersion: queue.currentVersion,
-      currentViewVersion: currentView.version,
-    });
+    // Processing view update queue
 
     // Send the patches
     updateView
@@ -488,7 +566,7 @@ export default function TableDetail() {
 
   // Update current view when filters, sort, or column visibility changes
   const updateView = api.table.updateView.useMutation({
-    onSuccess: async (response, variables) => {
+    onSuccess: async (response, _variables) => {
       // Handle both old format (updatedView) and new format (response)
       const updatedView = response.success
         ? {
@@ -498,12 +576,7 @@ export default function TableDetail() {
           }
         : response;
 
-      console.log("✅ View updated successfully:", {
-        viewId: updatedView.id,
-        newVersion: updatedView.version,
-        sentVersion: variables.version,
-        success: response.success,
-      });
+      // View updated successfully
 
       // Only update currentView if this is still the current view
       if (currentView?.id === updatedView.id) {
@@ -531,12 +604,8 @@ export default function TableDetail() {
 
       // Don't refetch views - can reintroduce older version
     },
-    onError: async (error, variables) => {
-      console.log("❌ View update failed:", {
-        viewId: variables.id,
-        sentVersion: variables.version,
-        error: error.message,
-      });
+    onError: async (error, _variables) => {
+      // View update failed
 
       // Handle structured error responses from server
       let errorData;
@@ -550,14 +619,9 @@ export default function TableDetail() {
         error.message.includes("CONFLICT") ||
         errorData.error === "CONFLICT"
       ) {
-        console.log(
-          "🔄 Conflict detected, refetching view and retrying same batch",
-        );
+        // Conflict detected, refetching view and retrying same batch
 
-        // Show user-friendly message
-        console.log(
-          "ℹ️ View was updated by another process. Retrying automatically...",
-        );
+        // Show user-friendly message - view was updated by another process, retrying automatically
 
         // Refetch the view to get the latest version
         const refetchResult = await refetchViews();
@@ -565,18 +629,14 @@ export default function TableDetail() {
 
         // Find the updated view with new version
         const updatedView = refetchedViews?.find(
-          (v: any) => v.id === variables.id,
+          (v: any) => v.id === _variables.id,
         );
 
         if (updatedView) {
-          const queue = getViewQueue(variables.id);
+          const queue = getViewQueue(_variables.id);
 
           if (queue.inFlightPatches) {
-            console.log("🔄 Retrying same batch with updated version:", {
-              viewId: updatedView.id,
-              newVersion: updatedView.version,
-              inFlightPatchCount: queue.inFlightPatches.length,
-            });
+            // Retrying same batch with updated version
 
             // Only update currentView if this is still the current view
             if (currentView?.id === updatedView.id) {
@@ -597,7 +657,7 @@ export default function TableDetail() {
             queue.currentVersion = updatedView.version;
 
             // Retry with the same in-flight patches using exponential backoff
-            await retryWithBackoff(variables.id, async () => {
+            await retryWithBackoff(_variables.id, async () => {
               await updateView.mutateAsync({
                 id: updatedView.id,
                 version: updatedView.version,
@@ -607,27 +667,24 @@ export default function TableDetail() {
           } else {
             console.error("❌ No in-flight patches found for retry");
             queue.isProcessing = false;
-            void processViewUpdateQueue(variables.id);
+            void processViewUpdateQueue(_variables.id);
           }
         } else {
           console.error("❌ Could not find updated view after refetch");
-          const queue = getViewQueue(variables.id);
+          const queue = getViewQueue(_variables.id);
           queue.isProcessing = false;
           queue.inFlightPatches = null;
-          void processViewUpdateQueue(variables.id);
+          void processViewUpdateQueue(_variables.id);
         }
       } else {
         console.error("❌ Non-conflict error:", error);
 
-        // Show user-friendly error message
-        const errorMessage =
-          errorData.message ?? error.message ?? "An unexpected error occurred";
-        console.log(`❌ Failed to update view: ${errorMessage}`);
+        // Failed to update view
 
-        const queue = getViewQueue(variables.id);
+        const queue = getViewQueue(_variables.id);
         queue.isProcessing = false;
         queue.inFlightPatches = null;
-        void processViewUpdateQueue(variables.id);
+        void processViewUpdateQueue(_variables.id);
       }
     },
   });
@@ -668,7 +725,10 @@ export default function TableDetail() {
 
     // If view sync is suspended, buffer patches instead of adding to pending
     if (suspendViewSync) {
-      console.log("⏸️ View sync suspended, buffering patch:", { op, path });
+      // Reduced logging for better performance
+      if (process.env.NODE_ENV === "development") {
+        console.log("⏸️ View sync suspended, buffering patch:", { op, path });
+      }
 
       // Remove any existing buffered patches for the same path (latest wins)
       bufferedPatchesRef.current = bufferedPatchesRef.current.filter(
@@ -699,16 +759,14 @@ export default function TableDetail() {
       timestamp: now,
     });
 
-    console.log("📝 Added patch to batch:", {
-      op,
-      path,
-      value,
-      totalPatches: pendingPatchesRef.current.length,
-      patches: pendingPatchesRef.current.map((p) => ({
-        op: p.op,
-        path: p.path,
-      })),
-    });
+    // Reduced logging for better performance - only log in development
+    if (process.env.NODE_ENV === "development") {
+      console.log("📝 Added patch to batch:", {
+        op,
+        path,
+        totalPatches: pendingPatchesRef.current.length,
+      });
+    }
 
     // Trigger the debounced save
     triggerDebouncedSave();
@@ -718,16 +776,11 @@ export default function TableDetail() {
   const triggerDebouncedSave = () => {
     // Short-circuit if view sync is suspended
     if (suspendViewSync) {
-      console.log("⏸️ View sync suspended, skipping debounced save");
+      // View sync suspended, skipping debounced save
       return;
     }
 
-    if (
-      currentView &&
-      table?.id &&
-      !currentView.id.startsWith("temp-") &&
-      currentView.name !== "Grid view"
-    ) {
+    if (currentView && table?.id && !currentView.id.startsWith("temp-")) {
       const queue = getViewQueue(currentView.id);
 
       // Clear any existing timeout for this view
@@ -735,23 +788,12 @@ export default function TableDetail() {
         clearTimeout(queue.debounceTimeout);
       }
 
-      console.log("🔄 Scheduling patch-based view update:", {
-        viewId: currentView.id,
-        viewName: currentView.name,
-        pendingPatches: pendingPatchesRef.current.length,
-      });
+      // Scheduling patch-based view update
 
       queue.debounceTimeout = setTimeout(() => {
         // Re-check conditions inside timeout in case view changed
-        if (
-          !currentView ||
-          !table?.id ||
-          currentView.id.startsWith("temp-") ||
-          currentView.name === "Grid view"
-        ) {
-          console.log(
-            "⏭️ View conditions changed during debounce, skipping update",
-          );
+        if (!currentView || !table?.id || currentView.id.startsWith("temp-")) {
+          // View conditions changed during debounce, skipping update
           return;
         }
 
@@ -759,28 +801,18 @@ export default function TableDetail() {
         pendingPatchesRef.current = []; // Clear the batch
 
         if (patches.length === 0) {
-          console.log("⏭️ No patches to apply, skipping update");
+          // No patches to apply, skipping update
           return;
         }
 
         const now = Date.now();
 
-        console.log("🚀 Adding patches to queue:", {
-          viewId: currentView.id,
-          version: currentView.version,
-          patches: patches.map((p) => ({ op: p.op, path: p.path })),
-          timeSinceLastUpdate: now - lastUpdateTimeRef.current,
-        });
+        // Adding patches to queue
 
         // Add patches to this view's queue
         queue.queuedPatches.push(...patches);
 
-        console.log("📝 Queue status:", {
-          viewId: currentView.id,
-          totalQueued: queue.queuedPatches.length,
-          isProcessing: queue.isProcessing,
-          currentVersion: queue.currentVersion,
-        });
+        // Queue status updated
 
         // Process the queue if not already processing
         if (!queue.isProcessing) {
@@ -793,10 +825,6 @@ export default function TableDetail() {
         // Clear the timeout ref
         queue.debounceTimeout = null;
       }, 400); // 400ms debounce to reduce churn for fast typers
-    } else if (currentView?.name === "Grid view") {
-      console.log(
-        "🛡️ Grid view protected from updates - keeping default settings",
-      );
     }
   };
 
@@ -823,23 +851,11 @@ export default function TableDetail() {
   // Auto-select the first view (default "Grid view") when views are loaded
   useEffect(() => {
     if (views && views.length > 0 && !currentView) {
-      console.log(
-        "📋 Views loaded:",
-        views?.map((v: any) => ({
-          id: v.id,
-          name: v.name,
-          version: v.version,
-          hasVersion: "version" in v,
-        })),
-      );
+      // Views loaded, auto-selecting default view
 
       const defaultView =
         views.find((v: any) => v.name === "Grid view") ?? views[0];
-      console.log("🎯 Auto-selecting view:", {
-        id: defaultView.id,
-        name: defaultView.name,
-        version: defaultView.version,
-      });
+      // Auto-selecting default view
       setCurrentView(defaultView);
     }
   }, [views, currentView]);
@@ -849,28 +865,19 @@ export default function TableDetail() {
     if (currentView?.version) {
       const queue = getViewQueue(currentView.id);
 
-      console.log("🎯 Initializing queue version from server view:", {
-        viewId: currentView.id,
-        viewName: currentView.name,
-        serverVersion: currentView.version,
-        queueVersion: queue.currentVersion,
-      });
+      // Initializing queue version from server view
 
       // Initialize queue version from server view
       queue.currentVersion = currentView.version;
     }
-  }, [currentView?.id, currentView?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentView?.id, currentView?.version]);
 
   // Sync view states with server versions when views are updated
   useEffect(() => {
     if (views && currentView) {
       const serverView = views.find((v: any) => v.id === currentView.id);
       if (serverView && serverView.version !== currentView.version) {
-        console.log("🔄 Syncing view version from server:", {
-          viewId: currentView.id,
-          oldVersion: currentView.version,
-          newVersion: serverView.version,
-        });
+        // Syncing view version from server
 
         // Update currentView with the server version
         setCurrentView(serverView);
@@ -894,7 +901,7 @@ export default function TableDetail() {
 
         // Clear any pending patches since we're syncing with server
         pendingPatchesRef.current = [];
-        console.log("🧹 Cleared pending patches due to version sync");
+        // Cleared pending patches due to version sync
       }
     }
   }, [views, currentView]);
@@ -909,9 +916,7 @@ export default function TableDetail() {
   // Handle view sync resumption and flush buffered patches
   useEffect(() => {
     if (!suspendViewSync && bufferedPatchesRef.current.length > 0) {
-      console.log(
-        `🔄 Resuming view sync, flushing ${bufferedPatchesRef.current.length} buffered patches`,
-      );
+      // Resuming view sync, flushing buffered patches
 
       // Get fresh view version from server
       void refetchViews().then((result) => {
@@ -929,9 +934,7 @@ export default function TableDetail() {
             );
 
             if (coalescedPatches.length > 0) {
-              console.log(
-                `🚀 Flushing ${coalescedPatches.length} coalesced patches after resume`,
-              );
+              // Flushing coalesced patches after resume
 
               // Send coalesced patches with fresh version
               updateView.mutate({
@@ -984,10 +987,16 @@ export default function TableDetail() {
         setBulkLoadingMessage("");
       }, 5000);
     },
-    onError: (error) => {
-      console.error("❌ Error adding test rows:", error);
+    onError: async (error) => {
       setIsBulkLoading(false);
       setBulkLoadingMessage("❌ Failed to add test rows");
+
+      // Resume view sync on error to prevent blocking future updates
+      setSuspendViewSync(false);
+
+      // Use graceful error handling
+      await handleErrorGracefully(error, "Bulk data insertion");
+
       setTimeout(() => {
         setBulkLoadingMessage("");
       }, 3000);
@@ -1018,10 +1027,7 @@ export default function TableDetail() {
       const previousViews = utils.table.getViews.getData({
         tableId: id as string,
       });
-      console.log(
-        "📝 Optimistic create - previous views:",
-        previousViews?.length,
-      );
+      // Optimistic create - previous views
       utils.table.getViews.setData({ tableId: id as string }, (old: any) => [
         ...(old ?? []),
         optimisticView,
@@ -1031,9 +1037,7 @@ export default function TableDetail() {
       setCurrentView(optimisticView);
 
       // Force a small delay to ensure the UI updates
-      setTimeout(() => {
-        console.log("📝 Optimistic create - view added to list");
-      }, 10);
+      // Optimistic create - view added to list
 
       return { previousViews };
     },
@@ -1053,11 +1057,11 @@ export default function TableDetail() {
         setIsLoadingViewData(false);
       }, 150); // Very short delay just for visual feedback
     },
-    onError: (error, variables, context) => {
-      console.error("❌ Error creating view:", error);
+    onError: async (error, variables, context) => {
       // Reset loading states
       setIsLoadingNewView(false);
       setIsLoadingViewData(false);
+
       // Rollback optimistic update
       if (context?.previousViews) {
         utils.table.getViews.setData(
@@ -1069,8 +1073,9 @@ export default function TableDetail() {
       if (currentView?.id.startsWith("temp-")) {
         setCurrentView(null);
       }
-      // Show user-friendly error message
-      alert("Failed to create view. Please try again.");
+
+      // Use graceful error handling instead of alert
+      await handleErrorGracefully(error, "View creation");
     },
   });
 
@@ -1086,16 +1091,11 @@ export default function TableDetail() {
       const previousViews = utils.table.getViews.getData({
         tableId: id as string,
       });
-      console.log(
-        "🗑️ Optimistic delete - previous views:",
-        previousViews?.length,
-        "deleting:",
-        variables.id,
-      );
+      // Optimistic delete - previous views
       utils.table.getViews.setData({ tableId: id as string }, (old: any) => {
         const filtered =
           old?.filter((view: any) => view.id !== variables.id) ?? [];
-        console.log("🗑️ After filter - remaining views:", filtered.length);
+        // After filter - remaining views
         return filtered;
       });
 
@@ -1111,9 +1111,7 @@ export default function TableDetail() {
       cleanupViewQueue(variables.id);
 
       // Force a small delay to ensure the UI updates
-      setTimeout(() => {
-        console.log("🗑️ Optimistic delete - view removed from list");
-      }, 10);
+      // Optimistic delete - view removed from list
 
       return { previousViews, deletedView: viewToDelete };
     },
@@ -1121,9 +1119,7 @@ export default function TableDetail() {
       // Refetch to ensure consistency
       await refetchViews();
     },
-    onError: (error, variables, context) => {
-      console.error("❌ Error deleting view:", error);
-
+    onError: async (error, variables, context) => {
       // Rollback optimistic update
       if (context?.previousViews) {
         utils.table.getViews.setData(
@@ -1137,13 +1133,11 @@ export default function TableDetail() {
         setCurrentView(context.deletedView);
       }
 
-      // Show user-friendly error message for default view protection
+      // Use graceful error handling instead of alerts
       if (error.message.includes("Cannot delete the default Grid view")) {
-        alert(
-          "Cannot delete the default Grid view. This view is required for the table to function properly.",
-        );
+        // Cannot delete the default Grid view - required for table functionality
       } else {
-        alert("Failed to delete view. Please try again.");
+        await handleErrorGracefully(error, "View deletion");
       }
     },
   });
@@ -1280,23 +1274,18 @@ export default function TableDetail() {
         version: view.version ?? 1,
       };
 
-      console.log("🔄 Initializing view state:", {
-        viewId: view.id,
-        viewName: view.name,
-        viewVersion: view.version,
-        initialStateVersion: initialState.version,
-      });
+      // Initializing view state
 
       if (view.name === "Grid view") {
         // Default settings for Grid view
-        console.log("🔄 Initializing Grid view with default settings");
+        // Initializing Grid view with default settings
         // Set all columns to visible for Grid view
         columns.forEach((column: any) => {
           initialState.columnVisibility[column.id] = true;
         });
       } else {
         // Apply saved view settings
-        console.log("🔄 Initializing custom view with saved settings");
+        // Initializing custom view with saved settings
         if (view.filters) {
           initialState.filters = view.filters as unknown as FilterGroup[];
         }
@@ -1319,13 +1308,13 @@ export default function TableDetail() {
         [view.id]: initialState,
       }));
     } else {
-      console.log("🔄 Switching to existing view with preserved state");
+      // Switching to existing view with preserved state
     }
   };
 
   const handleCreateView = (name: string) => {
     if (name.trim() && table?.id) {
-      console.log("➕ Creating view:", name.trim());
+      // Creating view
       createView.mutate({
         tableId: table.id,
         name: name.trim(),
@@ -1355,7 +1344,7 @@ export default function TableDetail() {
     }
 
     if (confirm("Are you sure you want to delete this view?")) {
-      console.log("🗑️ Deleting view:", viewId, viewToDelete);
+      // Deleting view
       deleteView.mutate({ id: viewId });
     }
   };
@@ -1415,6 +1404,14 @@ export default function TableDetail() {
                 },
               });
             }}
+            onBatchColumnVisibilityChange={(updates) => {
+              updateCurrentViewState({
+                columnVisibility: {
+                  ...columnVisibility,
+                  ...updates,
+                },
+              });
+            }}
             sort={sort}
             onSortChange={(newSort) =>
               updateCurrentViewState({ sort: newSort })
@@ -1446,6 +1443,16 @@ export default function TableDetail() {
                   columnVisibility: {
                     ...columnVisibility,
                     [columnId]: visible,
+                  },
+                });
+              }}
+              onBatchColumnVisibilityChange={(
+                updates: Record<string, boolean>,
+              ) => {
+                updateCurrentViewState({
+                  columnVisibility: {
+                    ...columnVisibility,
+                    ...updates,
                   },
                 });
               }}

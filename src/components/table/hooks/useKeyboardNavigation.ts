@@ -10,6 +10,7 @@ interface UseKeyboardNavigationProps {
   editingCell: CellSelection | null;
   onStopEdit?: () => void;
   onKeyboardFocus?: () => void;
+  onSaveAndStopEdit?: () => void;
 }
 
 export function useKeyboardNavigation({
@@ -21,6 +22,7 @@ export function useKeyboardNavigation({
   editingCell,
   onStopEdit,
   onKeyboardFocus,
+  onSaveAndStopEdit,
 }: UseKeyboardNavigationProps) {
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -49,7 +51,9 @@ export function useKeyboardNavigation({
           e.stopPropagation();
 
           // Save the current edit and navigate
-          if (onStopEdit) {
+          if (onSaveAndStopEdit) {
+            onSaveAndStopEdit();
+          } else if (onStopEdit) {
             onStopEdit();
           }
 
@@ -102,7 +106,7 @@ export function useKeyboardNavigation({
             }
           }, 50); // Small delay to allow save to complete
         }
-        return;
+        return; // Let EditableCell handle all keys including Tab navigation
       }
 
       // If no cell is selected, don't handle navigation
@@ -213,6 +217,7 @@ export function useKeyboardNavigation({
       editingCell,
       onStopEdit,
       onKeyboardFocus,
+      onSaveAndStopEdit,
     ],
   );
 

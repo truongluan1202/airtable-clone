@@ -275,6 +275,166 @@ ON CONFLICT (id) DO NOTHING
         "Turbo mode: inserted rows with JSON cache only. Search is backfilling in background.",
     };
   }
+
+  /**
+   * Turbo++: fastest path
+   * - No Cell writes
+   * - No md5 hashing
+   * - No cross join + jsonb_object_agg
+   * - Per-row jsonb_build_object with light integer math
+   */
+  async generateBulkSampleDataTurboPlus(opts: {
+    tableId: string;
+    columns: TableColumn[];
+    count?: number;
+    batchSize?: number; // default 100k
+    parallel?: number; // default 2 (try 3–4 if DB is beefy)
+  }): Promise<{
+    success: boolean;
+    rowsAdded: number;
+    status: string;
+    message: string;
+  }> {
+    const {
+      tableId,
+      columns,
+      count = 100,
+      batchSize = 100_000,
+      parallel = 2,
+    } = opts;
+
+    if (count <= 0 || columns.length === 0) {
+      return {
+        success: true,
+        rowsAdded: 0,
+        status: "completed",
+        message: "No work",
+      };
+    }
+
+    // Build a single jsonb_build_object(...) pair list once per batch:
+    // key = $$<columnId>$$, value = to_jsonb(<fast expr depending on row number>)
+    const names =
+      "ARRAY['Liam','Noah','Olivia','Emma','Ava','Mia','Amelia','Sophia','Isabella','James','Benjamin','Lucas','Henry','Alexander','Charlotte','Harper','Evelyn','Ella','Jack','Leo']";
+    const words =
+      "ARRAY['alpha','bravo','charlie','delta','echo','foxtrot','golf','hotel','india','juliet','kilo','lima','mike','november','oscar','papa','quebec','romeo','sierra','tango','uniform']";
+
+    const valueExprFor = (c: TableColumn, i: number) => {
+      // Use only integer math on the row counter (s.n) to synthesize values quickly.
+      // Different multipliers keep columns from repeating the same sequences.
+      if (c.name === "Name") {
+        return `(${names})[1 + (abs((s.n*17 + ${i}*31)) % 20)]`;
+      }
+      if (c.name === "Email") {
+        return `('user' || (100000 + (abs((s.n*97 + ${i}*13)) % 900000))::text || '@example.com')`;
+      }
+      if (c.name === "Age") {
+        return `(18 + (abs((s.n*53 + ${i}*7)) % 63))`;
+      }
+      if (c.type === "TEXT") {
+        return `(${words})[1 + (abs((s.n*11 + ${i})) % 21)]`;
+      }
+      if (c.type === "NUMBER") {
+        return `(1 + (abs((s.n*29 + ${i}*5)) % 100))`;
+      }
+      return "NULL";
+    };
+
+    const jsonPairs = columns
+      .map((c, i) => `$$${c.id}$$, to_jsonb(${valueExprFor(c, i)})`)
+      .join(",\n          ");
+
+    const writerUrl = process.env.DIRECT_DATABASE_URL!;
+    const totalBatches = Math.ceil(count / batchSize);
+    const batches = Array.from({ length: totalBatches }, (_, idx) => {
+      const start = idx * batchSize;
+      return { start, count: Math.min(batchSize, count - start) };
+    });
+
+    const client = new Client({ connectionString: writerUrl });
+    await client.connect();
+
+    const insertOneBatch = async (start: number, cnt: number) => {
+      await client.query("BEGIN");
+      try {
+        // Per-transaction fast settings
+        await client.query("SET LOCAL synchronous_commit = off");
+        await client.query("SET LOCAL wal_compression = on");
+        await client.query("SET LOCAL jit = off");
+        // If allowed in your environment, this helps when FKs exist:
+        try {
+          await client.query("SET LOCAL session_replication_role = replica");
+        } catch {}
+
+        // Single INSERT .. SELECT for cnt rows
+        const sql = `
+          INSERT INTO "Row"(id, "tableId", cache, search, "createdAt", "updatedAt")
+          SELECT
+            gen_random_uuid()::text,
+            $1::text,
+            jsonb_build_object(
+              ${jsonPairs}
+            ) AS cache,
+            NULL,
+            now(),
+            now()
+          FROM generate_series($2::int, ($2 + $3 - 1)::int) AS s(n)
+        `;
+        await client.query(sql, [tableId, start + 1, cnt]);
+
+        await client.query("COMMIT");
+      } catch (e) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {}
+        throw e;
+      }
+    };
+
+    const runWithConcurrency = async <T>(
+      items: T[],
+      concurrency: number,
+      worker: (item: T) => Promise<void>,
+    ) => {
+      const q = items.slice();
+      const n = Math.min(concurrency, q.length);
+      await Promise.all(
+        Array.from({ length: n }, async () => {
+          while (q.length) {
+            const item = q.shift()!;
+            await worker(item);
+          }
+        }),
+      );
+    };
+
+    try {
+      await runWithConcurrency(batches, parallel, (b) =>
+        insertOneBatch(b.start, b.count),
+      );
+    } finally {
+      try {
+        await client.end();
+      } catch {}
+    }
+
+    // Backfill search in the background from cache (fast single UPDATE)
+    backfillSearchFromCacheInBackground(tableId, writerUrl).catch((err) =>
+      console.error("Background search backfill failed:", err),
+    );
+
+    // Optional (recommended) to make immediate reads snappy
+    analyzeInBackground(writerUrl).catch((err) => {
+      console.warn("Background analyze failed:", err);
+    });
+
+    return {
+      success: true,
+      rowsAdded: count,
+      status: "completed",
+      message: `Inserted ${count} rows via Turbo++ (no md5, no cross-join, jsonb_build_object).`,
+    };
+  }
 }
 
 /** Compute Row.search from Row.cache in one pass (background) */

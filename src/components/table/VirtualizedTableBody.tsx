@@ -53,7 +53,7 @@ export function VirtualizedTableBody({
   getCellValue,
   handleContextMenu,
   handleAddRow,
-  handleCellClick,
+  handleCellClick: _handleCellClick,
   visibleColumns: _visibleColumns,
   hasNextPage,
   fetchNextPage,
@@ -61,9 +61,9 @@ export function VirtualizedTableBody({
   onRowHover,
   isAddingRow = false,
   isDataLoading = false,
-  getRowStatus,
-  getCellEditStatus,
-  isRowCreating,
+  getRowStatus: _getRowStatus,
+  getCellEditStatus: _getCellEditStatus,
+  isRowCreating: _isRowCreating,
   totalRows = 0,
 }: VirtualizedTableBodyProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -85,7 +85,7 @@ export function VirtualizedTableBody({
     },
   });
 
-  // console.log("🎯 Complete table structure:", { totalRows, loadedRows: rows.length, completeRowCount, virtualItems: virtualizer.getVirtualItems().length, hasNextPage, isFetchingNextPage });
+  // Complete table structure
 
   // Automatic background fetching - capped at ≤2 in flight
   useEffect(() => {
@@ -96,7 +96,7 @@ export function VirtualizedTableBody({
       !isFetchingNextPage &&
       fetchNextPage
     ) {
-      // console.log("🚀 Auto-fetching more data...", { hasNextPage, isFetchingNextPage, fetchNextPage: !!fetchNextPage, totalRows, loadedRows: rows.length, remainingRows: totalRows - rows.length });
+      // Auto-fetching more data
 
       // Fetch immediately without delay
       fetchNextPage();
@@ -113,12 +113,8 @@ export function VirtualizedTableBody({
       hasNextPage
     ) {
       // Calculate how many more requests we can make in parallel
-      const remainingRows = totalRows - rows.length;
       // Backend handles dynamic page sizing: first page = 500, subsequent = ALL remaining rows
-      const pageSize = remainingRows; // Backend loads all remaining rows in one go
-      const remainingPages = 1; // Only one more request needed
-      const maxParallelRequests = 1; // Only one request for all remaining data
-
+      // Backend loads all remaining rows in one go
       // Since backend loads all remaining rows in one go, no additional parallel requests needed
       // The main auto-fetch effect above will handle the single request for all remaining data
     }
@@ -136,7 +132,7 @@ export function VirtualizedTableBody({
 
       // Fetch more data when user scrolls 70% through the table (backup trigger)
       if (scrollPercentage > 0.7) {
-        // console.log("📊 Scroll-based loading triggered at", Math.round(scrollPercentage * 100) + "%");
+        // Scroll-based loading triggered
         fetchNextPage();
       }
     };

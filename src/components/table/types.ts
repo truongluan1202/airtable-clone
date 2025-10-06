@@ -19,6 +19,7 @@ export interface DataGridProps {
   onSearchChange?: (query: string) => void;
   columnVisibility?: Record<string, boolean>;
   onColumnVisibilityChange?: (columnId: string, visible: boolean) => void;
+  onBatchColumnVisibilityChange?: (updates: Record<string, boolean>) => void;
   sort?: SortConfig[];
   isBulkLoading?: boolean;
   bulkLoadingMessage?: string;

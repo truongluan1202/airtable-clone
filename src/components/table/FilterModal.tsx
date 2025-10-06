@@ -90,15 +90,7 @@ export function FilterModal({
 
   // Update local state when initialFilters prop changes (when modal opens)
   useEffect(() => {
-    console.log("🔄 FilterModal useEffect triggered:", {
-      isOpen,
-      isUpdating,
-      initialFilters,
-      currentFilters: currentFiltersRef.current,
-      filtersChanged:
-        JSON.stringify(initialFilters) !==
-        JSON.stringify(prevInitialFiltersRef.current),
-    });
+    // FilterModal useEffect triggered
 
     if (isOpen && !isUpdating) {
       // Only update if the initialFilters prop has actually changed
@@ -107,27 +99,18 @@ export function FilterModal({
         JSON.stringify(prevInitialFiltersRef.current);
 
       if (filtersChanged) {
-        console.log("🔄 FilterModal: Updating filters from props:", {
-          initialFilters,
-          previousInitialFilters: prevInitialFiltersRef.current,
-          isUpdating,
-        });
+        // FilterModal: Updating filters from props
 
         // Always use the initialFilters (no default filter creation)
-        console.log("🔄 FilterModal: Using initialFilters:", initialFilters);
+        // FilterModal: Using initialFilters
         setFilters(initialFilters);
 
         prevInitialFiltersRef.current = initialFilters;
       } else {
-        console.log("🔄 FilterModal: No change detected, skipping update");
+        // FilterModal: No change detected, skipping update
       }
     } else {
-      console.log(
-        "🔄 FilterModal: Skipping update - isOpen:",
-        isOpen,
-        "isUpdating:",
-        isUpdating,
-      );
+      // FilterModal: Skipping update
     }
   }, [initialFilters, isOpen, isUpdating, columns]);
 
@@ -142,16 +125,12 @@ export function FilterModal({
   }, [initialLogicOperator]);
 
   const handleFilterChange = (filterId: string, value: FilterValue) => {
-    console.log("Changing filter value:", {
-      filterId,
-      value,
-      currentFilters: filters,
-    });
+    // Changing filter value
     setIsUpdating(true);
     const updatedFilters = filters.map((filter) =>
       filter.id === filterId ? { ...filter, value } : filter,
     );
-    console.log("Updated filters:", updatedFilters);
+    // Updated filters
     setFilters(updatedFilters);
     onFiltersChange(updatedFilters, logicOperator);
     // Reset the updating flag after a short delay
@@ -167,12 +146,7 @@ export function FilterModal({
     };
     const updatedFilters = [...filters, newFilter];
 
-    console.log("➕ Adding new filter:", {
-      newFilter,
-      currentFilters: filters,
-      updatedFilters,
-      logicOperator,
-    });
+    // Adding new filter
 
     setIsUpdating(true);
     setFilters(updatedFilters);
@@ -182,11 +156,7 @@ export function FilterModal({
   };
 
   const handleColumnChange = (filterId: string, columnId: string) => {
-    console.log("Changing column:", {
-      filterId,
-      columnId,
-      currentFilters: filters,
-    });
+    // Changing column
     setIsUpdating(true);
     const updatedFilters = filters.map((filter) =>
       filter.id === filterId
@@ -198,7 +168,7 @@ export function FilterModal({
           }
         : filter,
     );
-    console.log("Updated filters:", updatedFilters);
+    // Updated filters
     setFilters(updatedFilters);
     onFiltersChange(updatedFilters, logicOperator);
     // Reset the updating flag after a short delay
@@ -217,18 +187,10 @@ export function FilterModal({
   };
 
   const removeFilter = (filterId: string) => {
-    console.log("🗑️ Removing filter:", {
-      filterId,
-      currentFilters: filters,
-      filtersLength: filters.length,
-    });
+    // Removing filter
     setIsUpdating(true);
     const updatedFilters = filters.filter((filter) => filter.id !== filterId);
-    console.log("Updated filters after removal:", {
-      updatedFilters,
-      updatedLength: updatedFilters.length,
-      willShowEmptyState: updatedFilters.length === 0,
-    });
+    // Updated filters after removal
     setFilters(updatedFilters);
     onFiltersChange(updatedFilters, logicOperator);
     // Reset the updating flag after a short delay
@@ -241,7 +203,7 @@ export function FilterModal({
   };
 
   const handleColumnSelect = (filterId: string, columnId: string) => {
-    console.log("Selecting column:", { filterId, columnId });
+    // Selecting column
     handleColumnChange(filterId, columnId);
     setOpenColumnDropdown(null);
     setColumnSearchQuery("");
@@ -258,11 +220,7 @@ export function FilterModal({
   };
 
   const handleOperatorSelect = (filterId: string, operator: FilterValue) => {
-    console.log("Selecting operator:", {
-      filterId,
-      operator,
-      currentFilters: filters,
-    });
+    // Selecting operator
     handleFilterChange(filterId, operator);
     setOpenOperatorDropdown(null);
     setOperatorSearchQueries((prev) => ({ ...prev, [filterId]: "" }));

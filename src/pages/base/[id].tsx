@@ -31,15 +31,10 @@ export default function BaseDetail() {
         refetchInterval: (data) => {
           // If no tables exist but base exists, poll for new tables
           if (base && (!data || (Array.isArray(data) && data.length === 0))) {
-            console.log("🔄 Polling for tables...", {
-              baseId: base.id,
-              tablesCount: Array.isArray(data) ? data.length : 0,
-            });
+            // Polling for tables
             return 500; // Poll every 500ms for very fast detection
           }
-          console.log("✅ Tables found, stopping polling", {
-            tablesCount: Array.isArray(data) ? data.length : 0,
-          });
+          // Tables found, stopping polling
           return false; // Stop polling when tables exist
         },
         refetchIntervalInBackground: true,
@@ -76,7 +71,7 @@ export default function BaseDetail() {
     if (tables && tables.length > 0 && !showCreateTable && !isCreatingTable) {
       // Reset waiting state when tables are found
       setWaitingForDefaultTable(false);
-      console.log("✅ Table found, redirecting to table page:", tables[0]?.id);
+      // Table found, redirecting to table page
       void router.push(`/table/${tables[0]?.id}`);
     } else if (
       tables &&
@@ -87,11 +82,11 @@ export default function BaseDetail() {
     ) {
       // If no tables exist but base exists, show skeleton immediately
       // Since base creation is now synchronous, table should be available
-      console.log("🔄 Showing skeleton - table should be available soon...");
+      // Showing skeleton - table should be available soon
       setWaitingForDefaultTable(true);
 
       // Immediately refetch tables to catch the newly created table
-      console.log("🔄 Immediately refetching tables...");
+      // Immediately refetching tables
       void refetchTables();
     }
   }, [tables, router, showCreateTable, isCreatingTable, base, refetchTables]);
@@ -100,9 +95,7 @@ export default function BaseDetail() {
   useEffect(() => {
     if (waitingForDefaultTable) {
       const timeout = setTimeout(() => {
-        console.log(
-          "⏰ Timeout waiting for default table, showing create table modal",
-        );
+        // Timeout waiting for default table, showing create table modal
         setWaitingForDefaultTable(false);
         setShowCreateTable(true);
       }, 2000); // 2 second timeout (very fast with synchronous creation)
@@ -220,7 +213,7 @@ export default function BaseDetail() {
               {!isCreatingTable && (
                 <button
                   onClick={() => {
-                    console.log("🔄 Manual refresh requested");
+                    // Manual refresh requested
                     void refetchTables();
                   }}
                   className="text-sm text-blue-600 underline hover:text-blue-800"

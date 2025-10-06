@@ -3,6 +3,34 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { createId } from "@paralleldrive/cuid2";
 import { createSampleDataService } from "~/server/services/sampleDataService";
 
+// Utility function for retrying operations with exponential backoff
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxRetries: number,
+  shouldRetry: (error: any) => boolean,
+): Promise<T> {
+  let lastError: any;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt === maxRetries || !shouldRetry(error)) {
+        throw error;
+      }
+
+      // Exponential backoff: 100ms, 200ms, 400ms, etc.
+      const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+      // Retrying operation with exponential backoff
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
 export const tableRouter = createTRPCRouter({
   // Get all tables for a base - Optimized with raw SQL
   getByBaseId: protectedProcedure
@@ -101,7 +129,7 @@ export const tableRouter = createTRPCRouter({
       `;
 
       if (result.length === 0) {
-        throw new Error("Table not found");
+        throw new Error("Table not found or access denied");
       }
 
       const totalRows = Number(result[0]?.count ?? 0);
@@ -439,13 +467,11 @@ export const tableRouter = createTRPCRouter({
       SET "expiresAt" = EXCLUDED."expiresAt"
     `;
 
-        console.log(
-          `🔒 BULK LOCK ACTIVE: ${input.tableId} (expires: ${lockExpiry.toISOString()})`,
-        );
+        // Bulk lock active
 
-        // ---- TURBO bulk insert: write only "Row.cache", skip "Cell" ----
+        // ---- TURBO++ bulk insert: fastest path with no md5, no cross-join ----
         const sampleDataService = createSampleDataService(ctx.prisma);
-        const result = await sampleDataService.generateBulkSampleDataTurbo({
+        const result = await sampleDataService.generateBulkSampleDataTurboPlus({
           tableId: table.id,
           columns: table.columns.map((col: any) => ({
             id: col.id,
@@ -454,8 +480,8 @@ export const tableRouter = createTRPCRouter({
           })),
           count: input.count,
           // Tune if DB is beefy:
-          batchSize: 50_000,
-          parallel: 2,
+          batchSize: 100_000, // try 150k–200k if memory is comfy
+          parallel: 2, // try 3–4 on a beefy DB
         });
 
         return result;
@@ -464,7 +490,7 @@ export const tableRouter = createTRPCRouter({
         await ctx.prisma.$executeRaw`
       DELETE FROM "BulkLock" WHERE id = ${lockKey}
     `;
-        console.log(`🔓 BULK LOCK RELEASED: ${input.tableId}`);
+        // Bulk lock released
       }
     }),
 
@@ -544,8 +570,20 @@ export const tableRouter = createTRPCRouter({
               NOW(),
               NOW()
             )
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET
+              "updatedAt" = NOW()
           `;
+
+          // Verify the row exists before proceeding with cell insert
+          const rowExists = await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT id FROM "Row" WHERE id = ${input.rowId}
+          `;
+
+          if (rowExists.length === 0) {
+            throw new Error(
+              `Row with id ${input.rowId} does not exist and could not be created`,
+            );
+          }
 
           // Upsert cell with proper typing
           const cellResult = await tx.$queryRaw<
@@ -682,7 +720,8 @@ export const tableRouter = createTRPCRouter({
           await tx.$executeRaw`
           INSERT INTO "Row" (id, "tableId", cache, search, "createdAt", "updatedAt")
           VALUES (${rowId}, ${input.tableId}, ${cacheJson}::jsonb, '', NOW(), NOW())
-          ON CONFLICT (id) DO NOTHING
+          ON CONFLICT (id) DO UPDATE SET
+            "updatedAt" = NOW()
         `;
 
           // Return the created row
@@ -741,60 +780,73 @@ export const tableRouter = createTRPCRouter({
       `;
 
       if (ownershipResult.length === 0) {
-        throw new Error("Table not found");
+        return {
+          success: false,
+          error: "TABLE_NOT_FOUND",
+          message: "Table not found or access denied",
+          shouldRefetch: true,
+        };
       }
 
       const { tableExists } = ownershipResult[0];
 
       if (!tableExists) {
-        throw new Error("Table not found");
+        return {
+          success: false,
+          error: "TABLE_NOT_FOUND",
+          message: "Table not found or access denied",
+          shouldRefetch: true,
+        };
       }
 
-      // Use raw SQL for efficient column creation and cell insertion
-      const result = await ctx.prisma.$transaction(
-        async (tx: any) => {
-          // Lock the table to prevent concurrent row addition
-          await tx.$executeRaw`SELECT * FROM "Table" WHERE id = ${input.tableId} FOR UPDATE`;
+      // Use raw SQL for efficient column creation with deadlock retry
+      const result = await retryWithBackoff(
+        async () => {
+          return await ctx.prisma.$transaction(
+            async (tx: any) => {
+              // Use provided column ID or generate new one
+              const columnId = input.columnId ?? createId();
 
-          // Use provided column ID or generate new one
-          const columnId = input.columnId ?? createId();
+              // Create column with raw SQL (idempotent)
+              await tx.$executeRaw`
+              INSERT INTO "Column" (id, name, type, "tableId", "createdAt", "updatedAt")
+              VALUES (${columnId}, ${input.name}, ${input.type}::"ColumnType", ${input.tableId}, NOW(), NOW())
+              ON CONFLICT (id) DO NOTHING
+            `;
 
-          // Create column with raw SQL (idempotent)
-          await tx.$executeRaw`
-          INSERT INTO "Column" (id, name, type, "tableId", "createdAt", "updatedAt")
-          VALUES (${columnId}, ${input.name}, ${input.type}::"ColumnType", ${input.tableId}, NOW(), NOW())
-          ON CONFLICT (id) DO NOTHING
-        `;
+              // Lazy cell creation: Don't create cells upfront for large tables
+              // Cells will be created on-demand when first accessed/edited
+              // This makes add column O(1) instead of O(n) for large tables
 
-          // Lazy cell creation: Don't create cells upfront for large tables
-          // Cells will be created on-demand when first accessed/edited
-          // This makes add column O(1) instead of O(n) for large tables
+              // No cache update needed - missing keys are treated as null at read time
+              // This is the fastest approach for large tables
 
-          // No cache update needed - missing keys are treated as null at read time
-          // This is the fastest approach for large tables
+              // Return the created column
+              const column = await tx.$queryRaw<
+                Array<{
+                  id: string;
+                  name: string;
+                  type: string;
+                  tableId: string;
+                  createdAt: Date;
+                  updatedAt: Date;
+                }>
+              >`
+              SELECT id, name, type, "tableId", "createdAt", "updatedAt"
+              FROM "Column"
+              WHERE id = ${columnId}
+              LIMIT 1
+            `;
 
-          // Return the created column
-          const column = await tx.$queryRaw<
-            Array<{
-              id: string;
-              name: string;
-              type: string;
-              tableId: string;
-              createdAt: Date;
-              updatedAt: Date;
-            }>
-          >`
-          SELECT id, name, type, "tableId", "createdAt", "updatedAt"
-          FROM "Column"
-          WHERE id = ${columnId}
-          LIMIT 1
-        `;
-
-          return column[0];
+              return column[0];
+            },
+            {
+              timeout: 30000, // 30 seconds timeout for bulk operations
+            },
+          );
         },
-        {
-          timeout: 30000, // 30 seconds timeout for bulk operations
-        },
+        3, // max retries
+        (error) => error.message.includes("deadlock detected"),
       );
 
       return result;
@@ -842,7 +894,12 @@ export const tableRouter = createTRPCRouter({
       `;
 
       if (tableResult.length === 0) {
-        throw new Error("Table not found or access denied");
+        return {
+          success: false,
+          error: "TABLE_NOT_FOUND",
+          message: "Table not found or access denied",
+          shouldRefetch: true,
+        };
       }
 
       const { tableId, rowCount } = tableResult[0];
@@ -858,51 +915,57 @@ export const tableRouter = createTRPCRouter({
         let processedRows = 0;
 
         while (processedRows < totalRows) {
-          await ctx.prisma.$transaction(
-            async (tx: any) => {
-              // Use keyset pagination for better performance on large datasets
-              const batchResult = await tx.$queryRaw<
-                Array<{ id: string; createdAt: Date }>
-              >`
-                SELECT id, "createdAt"
-                FROM "Row" 
-                WHERE "tableId" = ${tableId}
-                  AND (
-                    ${lastCreatedAt}::timestamp IS NULL 
-                    OR "createdAt" > ${lastCreatedAt}::timestamp
-                    OR ("createdAt" = ${lastCreatedAt}::timestamp AND id > ${lastId}::text)
-                  )
-                ORDER BY "createdAt", id
-                LIMIT ${batchSize}
-              `;
+          await retryWithBackoff(
+            async () => {
+              return await ctx.prisma.$transaction(
+                async (tx: any) => {
+                  // Use keyset pagination for better performance on large datasets
+                  const batchResult = await tx.$queryRaw<
+                    Array<{ id: string; createdAt: Date }>
+                  >`
+                    SELECT id, "createdAt"
+                    FROM "Row" 
+                    WHERE "tableId" = ${tableId}
+                      AND (
+                        ${lastCreatedAt}::timestamp IS NULL 
+                        OR "createdAt" > ${lastCreatedAt}::timestamp
+                        OR ("createdAt" = ${lastCreatedAt}::timestamp AND id > ${lastId}::text)
+                      )
+                    ORDER BY "createdAt", id
+                    LIMIT ${batchSize}
+                  `;
 
-              if (batchResult.length === 0) {
-                processedRows = totalRows; // Exit the while loop
-                return;
-              }
+                  if (batchResult.length === 0) {
+                    processedRows = totalRows; // Exit the while loop
+                    return;
+                  }
 
-              // Update cache for this batch
-              const batchIds = batchResult.map(
-                (r: { id: string; createdAt: Date }) => r.id,
+                  // Update cache for this batch
+                  const batchIds = batchResult.map(
+                    (r: { id: string; createdAt: Date }) => r.id,
+                  );
+                  await tx.$executeRaw`
+                    UPDATE "Row" 
+                    SET 
+                      cache = cache - ${input.columnId},
+                      "updatedAt" = NOW()
+                    WHERE "tableId" = ${tableId}
+                      AND id = ANY(${batchIds})
+                  `;
+
+                  // Update keyset for next iteration
+                  const lastRow = batchResult[batchResult.length - 1];
+                  lastCreatedAt = lastRow.createdAt;
+                  lastId = lastRow.id;
+                  processedRows += batchResult.length;
+                },
+                {
+                  timeout: 15000, // 15 seconds per batch
+                },
               );
-              await tx.$executeRaw`
-                UPDATE "Row" 
-                SET 
-                  cache = cache - ${input.columnId},
-                  "updatedAt" = NOW()
-                WHERE "tableId" = ${tableId}
-                  AND id = ANY(${batchIds})
-              `;
-
-              // Update keyset for next iteration
-              const lastRow = batchResult[batchResult.length - 1];
-              lastCreatedAt = lastRow.createdAt;
-              lastId = lastRow.id;
-              processedRows += batchResult.length;
             },
-            {
-              timeout: 15000, // 15 seconds per batch
-            },
+            3, // max retries
+            (error) => error.message.includes("deadlock detected"),
           );
 
           // Small delay between batches to prevent lock contention
@@ -911,21 +974,27 @@ export const tableRouter = createTRPCRouter({
           }
         }
       } else {
-        // For small tables, process all at once
-        await ctx.prisma.$transaction(
-          async (tx: any) => {
-            // Remove column from row cache
-            await tx.$executeRaw`
-              UPDATE "Row" 
-              SET 
-                cache = cache - ${input.columnId},
-                "updatedAt" = NOW()
-              WHERE "tableId" = ${tableId}
-            `;
+        // For small tables, process all at once with deadlock retry
+        await retryWithBackoff(
+          async () => {
+            return await ctx.prisma.$transaction(
+              async (tx: any) => {
+                // Remove column from row cache
+                await tx.$executeRaw`
+                  UPDATE "Row" 
+                  SET 
+                    cache = cache - ${input.columnId},
+                    "updatedAt" = NOW()
+                  WHERE "tableId" = ${tableId}
+                `;
+              },
+              {
+                timeout: 15000,
+              },
+            );
           },
-          {
-            timeout: 15000,
-          },
+          3, // max retries
+          (error) => error.message.includes("deadlock detected"),
         );
       }
 
@@ -1049,9 +1118,7 @@ export const tableRouter = createTRPCRouter({
       `;
 
       if (bulkLock.length > 0) {
-        console.log(
-          `⏸️ View update skipped due to bulk operation in progress (table: ${bulkLock[0].id.split("_")[2]}, expires: ${bulkLock[0].expiresAt.toISOString()})`,
-        );
+        // View update skipped due to bulk operation in progress
         return {
           id,
           version,
@@ -1166,9 +1233,7 @@ export const tableRouter = createTRPCRouter({
             if (retryCount < maxRetries) {
               // Exponential backoff: 50ms, 100ms, 200ms
               const backoffMs = 50 * Math.pow(2, retryCount - 1);
-              console.log(
-                `🔄 CAS retry ${retryCount}/${maxRetries} after ${backoffMs}ms for view ${id}`,
-              );
+              // CAS retry with exponential backoff
 
               // Get the latest version for the next attempt
               const latestView = await ctx.prisma.view.findFirst({

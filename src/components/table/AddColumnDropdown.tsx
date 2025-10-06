@@ -1,8 +1,13 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { createId } from "@paralleldrive/cuid2";
 import Image from "next/image";
 
 interface AddColumnDropdownProps {
-  onAddColumn: (name: string, type: "TEXT" | "NUMBER") => void;
+  onAddColumn: (
+    name: string,
+    type: "TEXT" | "NUMBER",
+    columnId?: string,
+  ) => void;
   onClose: () => void;
   isLoading?: boolean;
   isDataLoading?: boolean;
@@ -14,11 +19,43 @@ export function AddColumnDropdown({
   isLoading = false,
   isDataLoading = false,
 }: AddColumnDropdownProps) {
-  const [columnName, setColumnName] = useState("");
-  const [columnType, setColumnType] = useState<"TEXT" | "NUMBER">("TEXT");
+  // Create a stable temp column ID that persists for the lifetime of this component
+  const [tempColumnId] = useState(() => `temp-col-${createId()}`);
+
+  // Draft state - never read from server while editing
+  const [draftName, setDraftName] = useState("");
+  const [draftType, setDraftType] = useState<"TEXT" | "NUMBER">("TEXT");
+  const [isComposing, setIsComposing] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Commit draft - save and close
+  const handleCommit = useCallback(() => {
+    if (draftName.trim() && !isComposing) {
+      onAddColumn(draftName.trim(), draftType, tempColumnId);
+      onClose();
+    } else {
+      onClose();
+    }
+  }, [draftName, draftType, tempColumnId, onAddColumn, onClose, isComposing]);
+
+  // Cancel draft - discard and close
+  const handleCancel = useCallback(() => {
+    setDraftName("");
+    setDraftType("TEXT");
+    onClose();
+  }, [onClose]);
+
+  // Handle IME composition events
+  const handleCompositionStart = useCallback(() => {
+    setIsComposing(true);
+  }, []);
+
+  const handleCompositionEnd = useCallback(() => {
+    setIsComposing(false);
+  }, []);
 
   useEffect(() => {
     // Focus the input when component mounts
@@ -33,7 +70,7 @@ export function AddColumnDropdown({
         dropdownRef.current &&
         !dropdownRef.current.contains(event.target as Node)
       ) {
-        onClose();
+        handleCommit();
       }
     };
 
@@ -41,19 +78,20 @@ export function AddColumnDropdown({
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [onClose]);
+  }, [handleCommit]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (columnName.trim()) {
-      onAddColumn(columnName.trim(), columnType);
-      onClose();
-    }
+    handleCommit();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
-      onClose();
+      e.preventDefault();
+      handleCancel();
+    } else if (e.key === "Enter" && !isComposing) {
+      e.preventDefault();
+      handleCommit();
     }
   };
 
@@ -69,8 +107,11 @@ export function AddColumnDropdown({
             ref={inputRef}
             id="column-name"
             type="text"
-            value={columnName}
-            onChange={(e) => setColumnName(e.target.value)}
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
+            onBlur={handleCommit}
             placeholder={
               isDataLoading
                 ? "Cannot add column while data is loading"
@@ -78,7 +119,7 @@ export function AddColumnDropdown({
             }
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-100"
             required
-            disabled={isDataLoading}
+            disabled={isDataLoading || isLoading}
           />
         </div>
 
@@ -92,7 +133,7 @@ export function AddColumnDropdown({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  {columnType === "TEXT" ? (
+                  {draftType === "TEXT" ? (
                     <svg
                       width="16"
                       height="16"
@@ -115,7 +156,7 @@ export function AddColumnDropdown({
                       <path d="M216 152h-48v-48h48a8 8 0 0 0 0-16h-48V40a8 8 0 0 0-16 0v48h-48V40a8 8 0 0 0-16 0v48H40a8 8 0 0 0 0 16h48v48H40a8 8 0 0 0 0 16h48v48a8 8 0 0 0 16 0v-48h48v48a8 8 0 0 0 16 0v-48h48a8 8 0 0 0 0-16m-112 0v-48h48v48Z" />
                     </svg>
                   )}
-                  <span>{columnType === "TEXT" ? "Text" : "Number"}</span>
+                  <span>{draftType === "TEXT" ? "Text" : "Number"}</span>
                 </div>
                 <Image
                   src="/icons/chevron-down.svg"
@@ -132,7 +173,7 @@ export function AddColumnDropdown({
                 <button
                   type="button"
                   onClick={() => {
-                    setColumnType("TEXT");
+                    setDraftType("TEXT");
                     setIsOpen(false);
                   }}
                   className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
@@ -155,7 +196,7 @@ export function AddColumnDropdown({
                 <button
                   type="button"
                   onClick={() => {
-                    setColumnType("NUMBER");
+                    setDraftType("NUMBER");
                     setIsOpen(false);
                   }}
                   className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
@@ -188,7 +229,7 @@ export function AddColumnDropdown({
           </button>
           <button
             type="submit"
-            disabled={!columnName.trim() || isLoading || isDataLoading}
+            disabled={!draftName.trim() || isLoading || isDataLoading}
             className="flex items-center space-x-2 rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500"
             title={
               isDataLoading

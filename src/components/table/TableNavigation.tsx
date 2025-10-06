@@ -3,6 +3,7 @@ import Image from "next/image";
 import { HideFieldsDropdown } from "./HideFieldsModal";
 import { SortDropdown } from "./SortDropdown";
 import { FilterModal } from "./FilterModal";
+import { CreateViewModal } from "./CreateViewModal";
 import type {
   SortConfig,
   FilterGroup,
@@ -19,6 +20,7 @@ interface TableNavigationProps {
   columns?: Column[];
   columnVisibility?: Record<string, boolean>;
   onColumnVisibilityChange?: (columnId: string, visible: boolean) => void;
+  onBatchColumnVisibilityChange?: (updates: Record<string, boolean>) => void;
   sort?: SortConfig[];
   onSortChange?: (sort: SortConfig[]) => void;
   filters?: FilterGroup[];
@@ -43,6 +45,7 @@ export function TableNavigation({
   columns = [],
   columnVisibility = {},
   onColumnVisibilityChange,
+  onBatchColumnVisibilityChange,
   sort = [],
   onSortChange,
   filters: _filters = [],
@@ -81,33 +84,43 @@ export function TableNavigation({
     }>
   >([]);
   const [logicOperator, setLogicOperator] = useState<"and" | "or">("and");
+  const [showCreateViewModal, setShowCreateViewModal] = useState(false);
 
-  // Initialize filters from parent state when it changes
+  // Initialize filters from parent state when it changes - optimized for performance
   useEffect(() => {
-    console.log("🔄 TableNavigation: Initializing filters from parent:", {
-      _filters,
-      currentFilters: filters,
-    });
+    // Skip expensive operations if view creation modal is open
+    if (showCreateViewModal) {
+      return;
+    }
 
     if (_filters && _filters.length > 0) {
       // Convert FilterGroup back to internal filter format
       const firstGroup = _filters[0];
       if (firstGroup?.conditions && firstGroup.conditions.length > 0) {
         const convertedFilters = firstGroup.conditions.map((condition) => ({
-          id: condition.id || `filter-${Date.now()}-${Math.random()}`,
+          id:
+            condition.id ||
+            `filter-${condition.columnId}-${condition.operator}`,
           value: condition.operator as any,
           columnId: condition.columnId,
           inputValue: condition.value?.toString() ?? "",
         }));
 
-        // Only update if the converted filters are actually different
+        // Only update if the converted filters are actually different (optimized comparison)
         const filtersChanged =
-          JSON.stringify(convertedFilters) !== JSON.stringify(filters);
-        if (filtersChanged) {
-          console.log("🔄 Converting filter groups to internal format:", {
-            firstGroup,
-            convertedFilters,
+          convertedFilters.length !== filters.length ||
+          convertedFilters.some((newFilter, index) => {
+            const oldFilter = filters[index];
+            return (
+              !oldFilter ||
+              newFilter.id !== oldFilter.id ||
+              newFilter.value !== oldFilter.value ||
+              newFilter.columnId !== oldFilter.columnId ||
+              newFilter.inputValue !== oldFilter.inputValue
+            );
           });
+
+        if (filtersChanged) {
           setFilters(convertedFilters);
           setLogicOperator(firstGroup.logicOperator ?? "and");
         }
@@ -126,9 +139,7 @@ export function TableNavigation({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [_filters, showFilterDropdown]); // filters intentionally excluded to prevent infinite loop
-  const [showCreateViewModal, setShowCreateViewModal] = useState(false);
-  const [newViewName, setNewViewName] = useState("");
+  }, [_filters, showFilterDropdown, showCreateViewModal]); // Added showCreateViewModal to dependencies
   const searchRef = useRef<HTMLDivElement>(null);
   const hideFieldsRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -262,18 +273,14 @@ export function TableNavigation({
     newFilters: typeof filters,
     newLogicOperator: "and" | "or",
   ) => {
-    console.log("🔍 Filter change in TableNavigation:", {
-      newFilters,
-      newLogicOperator,
-      currentView: currentView?.name,
-    });
+    // Filter change in TableNavigation
 
     setFilters(newFilters);
     setLogicOperator(newLogicOperator);
 
     // Convert to FilterGroup format and call parent callback
     const filterGroups = convertToFilterGroups(newFilters, newLogicOperator);
-    console.log("🔍 Converted filter groups:", filterGroups);
+    // Converted filter groups
     _onFiltersChange?.(filterGroups);
   };
 
@@ -354,6 +361,9 @@ export function TableNavigation({
                 visibleColumns={columnVisibility}
                 onColumnVisibilityChange={
                   onColumnVisibilityChange ?? (() => undefined)
+                }
+                onBatchColumnVisibilityChange={
+                  onBatchColumnVisibilityChange ?? (() => undefined)
                 }
                 onClose={() => setShowHideFieldsDropdown(false)}
               />
@@ -678,62 +688,20 @@ export function TableNavigation({
         </div>
       </div>
 
-      {/* Create View Modal */}
+      {/* Create View Modal - Optimized for performance */}
       {showCreateViewModal && (
-        <div className="cell-modal-overlay bg-opacity-50 fixed inset-0 z-50 flex items-center justify-center bg-black">
-          <div className="w-96 rounded-lg bg-white p-6 shadow-xl">
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">
-              Create New View
-            </h3>
-            <div className="mb-4">
-              <label className="mb-2 block text-sm font-medium text-gray-700">
-                View Name
-              </label>
-              <input
-                type="text"
-                value={newViewName}
-                onChange={(e) => setNewViewName(e.target.value)}
-                placeholder="Enter view name..."
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                autoFocus
-              />
-            </div>
-            <div className="flex justify-end space-x-3">
-              <button
-                onClick={() => {
-                  if (!isCreatingView) {
-                    setShowCreateViewModal(false);
-                    setNewViewName("");
-                  }
-                }}
-                disabled={isCreatingView}
-                className="rounded-md px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (newViewName.trim()) {
-                    onCreateView?.(newViewName.trim());
-                    setShowCreateViewModal(false);
-                    setNewViewName("");
-                  }
-                }}
-                disabled={!newViewName.trim() || isCreatingView}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-              >
-                {isCreatingView ? (
-                  <div className="flex items-center space-x-2">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                    <span>Creating...</span>
-                  </div>
-                ) : (
-                  "Create View"
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateViewModal
+          onCreateView={(name) => {
+            if (onCreateView) {
+              onCreateView(name);
+            }
+            setShowCreateViewModal(false);
+          }}
+          onClose={() => {
+            setShowCreateViewModal(false);
+          }}
+          isLoading={isCreatingView}
+        />
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import Image from "next/image";
 import { createColumnHelper, type ColumnDef } from "@tanstack/react-table";
 import { EditableCell } from "./EditableCell";
@@ -76,7 +76,11 @@ interface UseTableColumnsProps {
   handleCellStopEdit: () => void;
   showAddColumnDropdown: boolean;
   setShowAddColumnDropdown: (show: boolean) => void;
-  handleAddColumn: (name: string, type: "TEXT" | "NUMBER") => void;
+  handleAddColumn: (
+    name: string,
+    type: "TEXT" | "NUMBER",
+    columnId?: string,
+  ) => void;
   handleDeleteColumn: (columnId: string) => void;
   openColumnDropdown: string | null;
   setOpenColumnDropdown: (columnId: string | null) => void;
@@ -113,6 +117,11 @@ export function useTableColumns({
   isDataLoading = false,
 }: UseTableColumnsProps): ColumnDef<DataRow, any>[] {
   const columnHelper = createColumnHelper<DataRow>();
+
+  // Create a stable close function to prevent unnecessary re-renders
+  const handleCloseDropdown = useCallback(() => {
+    setShowAddColumnDropdown(false);
+  }, [setShowAddColumnDropdown]);
 
   const tableColumns = useMemo(() => {
     const cols: ColumnDef<DataRow, any>[] = [
@@ -270,8 +279,9 @@ export function useTableColumns({
             </button>
             {showAddColumnDropdown && (
               <AddColumnDropdown
+                key="add-column-dropdown"
                 onAddColumn={handleAddColumn}
-                onClose={() => setShowAddColumnDropdown(false)}
+                onClose={handleCloseDropdown}
                 isLoading={isAddingColumn}
                 isDataLoading={isDataLoading}
               />
@@ -307,6 +317,7 @@ export function useTableColumns({
     isAddingColumn,
     isDeletingColumn,
     isDataLoading,
+    handleCloseDropdown,
   ]);
 
   return tableColumns;

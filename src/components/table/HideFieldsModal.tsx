@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
 
 interface Column {
   id: string;
@@ -11,6 +10,7 @@ interface HideFieldsDropdownProps {
   columns: Column[];
   visibleColumns: Record<string, boolean>;
   onColumnVisibilityChange: (columnId: string, visible: boolean) => void;
+  onBatchColumnVisibilityChange?: (updates: Record<string, boolean>) => void;
   onClose: () => void;
 }
 
@@ -18,6 +18,7 @@ export function HideFieldsDropdown({
   columns,
   visibleColumns,
   onColumnVisibilityChange,
+  onBatchColumnVisibilityChange,
   onClose,
 }: HideFieldsDropdownProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,15 +47,43 @@ export function HideFieldsDropdown({
   }, [onClose]);
 
   const handleHideAll = () => {
-    columns.forEach((column) => {
-      onColumnVisibilityChange(column.id, false);
-    });
+    // Batch all hide operations to avoid multiple rapid calls
+    const updates = columns.reduce(
+      (acc, column) => {
+        acc[column.id] = false;
+        return acc;
+      },
+      {} as Record<string, boolean>,
+    );
+
+    // Use batch function if available, otherwise fall back to individual calls
+    if (onBatchColumnVisibilityChange) {
+      onBatchColumnVisibilityChange(updates);
+    } else {
+      Object.entries(updates).forEach(([columnId, visible]) => {
+        onColumnVisibilityChange(columnId, visible);
+      });
+    }
   };
 
   const handleShowAll = () => {
-    columns.forEach((column) => {
-      onColumnVisibilityChange(column.id, true);
-    });
+    // Batch all show operations to avoid multiple rapid calls
+    const updates = columns.reduce(
+      (acc, column) => {
+        acc[column.id] = true;
+        return acc;
+      },
+      {} as Record<string, boolean>,
+    );
+
+    // Use batch function if available, otherwise fall back to individual calls
+    if (onBatchColumnVisibilityChange) {
+      onBatchColumnVisibilityChange(updates);
+    } else {
+      Object.entries(updates).forEach(([columnId, visible]) => {
+        onColumnVisibilityChange(columnId, visible);
+      });
+    }
   };
 
   const getColumnIcon = (column: Column) => {

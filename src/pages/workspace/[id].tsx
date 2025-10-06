@@ -56,16 +56,10 @@ export default function WorkspacePage() {
 
       // Update URL to real table ID when API completes
       if (result.tableId) {
-        console.log(
-          "✅ API completed, updating URL to real table:",
-          result.tableId,
-        );
+        // API completed, updating URL to real table
         void router.replace(`/table/${result.tableId}`);
       } else {
-        console.log(
-          "🔄 No table created, redirecting to base:",
-          result.base.id,
-        );
+        // No table created, redirecting to base
         void router.replace(`/base/${result.base.id}`);
       }
     },
@@ -144,7 +138,7 @@ export default function WorkspacePage() {
       const tempTableId = `temp-table-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       // Redirect immediately while API processes
-      console.log("🚀 Optimistic redirect to table:", tempTableId);
+      // Optimistic redirect to table
       void router.push(`/table/${tempTableId}`);
 
       // Start API call in background

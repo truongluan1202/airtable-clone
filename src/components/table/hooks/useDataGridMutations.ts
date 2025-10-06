@@ -6,6 +6,39 @@ import type { Column } from "../types";
 export function useDataGridMutations(tableId?: string, isDataLoading = false) {
   const utils = api.useUtils();
 
+  // Graceful error handling utility
+  const handleErrorGracefully = async (error: any, operation: string) => {
+    console.error(`❌ ${operation} failed:`, error);
+
+    // Check if it's a structured error response
+    let errorData;
+    try {
+      errorData = JSON.parse(error.message);
+    } catch {
+      errorData = { message: error.message };
+    }
+
+    // Error encountered, refreshing data
+
+    // If the error indicates we should refetch, do so
+    if (errorData.shouldRefetch !== false) {
+      try {
+        await Promise.all([
+          utils.table.getByIdPaginated.invalidate({ id: tableId ?? "" }),
+          utils.table.getViews.invalidate({ tableId: tableId ?? "" }),
+          utils.table.getRowCount.invalidate({ id: tableId ?? "" }),
+        ]);
+        // Data refreshed successfully
+      } catch (refetchError) {
+        console.error(
+          `❌ Failed to refresh data after ${operation} error:`,
+          refetchError,
+        );
+        // Unable to refresh data, user should reload page
+      }
+    }
+  };
+
   // Track loading states that persist until data is refetched
   const [isAddingColumnLoading, setIsAddingColumnLoading] = useState(false);
   const [isAddingRowLoading, setIsAddingRowLoading] = useState(false);
@@ -45,7 +78,7 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
 
       void utils.table.getByIdPaginated.invalidate();
     },
-    onError: (error, variables) => {
+    onError: async (error, variables) => {
       console.error("❌ Failed to update cell:", error);
 
       const cellKey = `${variables.rowId}-${variables.columnId}`;
@@ -55,6 +88,9 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         ...prev,
         [cellKey]: "saved",
       }));
+
+      // Use graceful error handling to refresh data
+      await handleErrorGracefully(error, "Cell update");
     },
   });
 
@@ -155,11 +191,10 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         setIsAddingColumnLoading(false);
       }, 500);
     },
-    onError: (error, variables, context) => {
-      console.error("❌ Failed to add column:", error);
+    onError: async (error, variables, context) => {
       setIsAddingColumnLoading(false);
 
-      // Remove the optimistic column and show error
+      // Remove the optimistic column
       if (context?.previousData) {
         utils.table.getByIdPaginated.setInfiniteData(
           { id: variables.tableId, limit: 500 },
@@ -188,7 +223,8 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         });
       }
 
-      // TODO: Show toast notification for error
+      // Use graceful error handling
+      await handleErrorGracefully(error, "Column addition");
     },
   });
 
@@ -474,8 +510,7 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         setIsDeletingColumnLoading(false);
       }, 500);
     },
-    onError: (error, variables, context) => {
-      console.error("❌ Failed to delete column:", error);
+    onError: async (error, variables, context) => {
       setIsDeletingColumnLoading(false);
 
       // Rollback optimistic updates
@@ -485,18 +520,21 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
           context.previousData,
         );
       }
+
+      // Use graceful error handling
+      await handleErrorGracefully(error, "Column deletion");
     },
   });
 
   const handleAddColumn = useCallback(
-    (name: string, type: "TEXT" | "NUMBER") => {
+    (name: string, type: "TEXT" | "NUMBER", columnId?: string) => {
       if (!tableId) {
         console.error("Table ID is required to add a column");
         return;
       }
 
-      // Generate proper client-assigned column ID using cuid2
-      const clientColumnId = createId();
+      // Use provided columnId or generate a new one
+      const clientColumnId = columnId ?? createId();
 
       addColumnMutation.mutate({
         tableId,
@@ -551,6 +589,12 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         React.SetStateAction<Record<string, string>>
       >,
     ) => {
+      // Prevent updates when data is loading
+      if (isDataLoading) {
+        console.log("⏸️ Cell update skipped - data is loading");
+        return;
+      }
+
       const cellKey = `${rowId}-${columnId}`;
 
       // Update local state optimistically
@@ -605,7 +649,7 @@ export function useDataGridMutations(tableId?: string, isDataLoading = false) {
         value: processedValue,
       });
     },
-    [updateCellMutation],
+    [updateCellMutation, isDataLoading],
   );
 
   // Combined cell value function that checks both cellValues and pendingEdits
