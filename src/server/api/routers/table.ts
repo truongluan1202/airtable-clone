@@ -480,7 +480,7 @@ export const tableRouter = createTRPCRouter({
           })),
           count: input.count,
           // Tune if DB is beefy:
-          batchSize: 100_000, // try 150k–200k if memory is comfy
+          batchSize: 50_000, // try 150k–200k if memory is comfy
           parallel: 2, // try 3–4 on a beefy DB
         });
 
@@ -960,7 +960,7 @@ export const tableRouter = createTRPCRouter({
                   processedRows += batchResult.length;
                 },
                 {
-                  timeout: 15000, // 15 seconds per batch
+                  timeout: 20000, // 15 seconds per batch
                 },
               );
             },

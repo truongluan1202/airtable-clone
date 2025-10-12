@@ -31,6 +31,22 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    signIn: async ({ user, account, profile }) => {
+      // Add your allowed email addresses here
+      const allowedEmails = [
+        "tdtruongluan@gmail.com",
+        "nam@lyratechnologies.com.au",
+        // Add more emails as needed
+      ];
+
+      // Check if user email is in the allowlist
+      if (user.email && allowedEmails.includes(user.email)) {
+        return true;
+      }
+
+      // Reject sign-in for non-allowlisted emails
+      return false;
+    },
     session: ({ session, user }) => ({
       ...session,
       user: {
@@ -53,10 +69,8 @@ export const authOptions: NextAuthOptions = {
  * @see https://next-auth.js.org/configuration/nextjs
  */
 
- 
 export const getServerAuthSession = (opts?: { req: any; res: any }) => {
   if (opts) {
-     
     return getServerSession(opts.req, opts.res, authOptions);
   }
   return getServerSession(authOptions);

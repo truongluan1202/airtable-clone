@@ -299,7 +299,7 @@ ON CONFLICT (id) DO NOTHING
       tableId,
       columns,
       count = 100,
-      batchSize = 100_000,
+      batchSize = 50_000,
       parallel = 2,
     } = opts;
 
@@ -351,10 +351,17 @@ ON CONFLICT (id) DO NOTHING
       return { start, count: Math.min(batchSize, count - start) };
     });
 
-    const client = new Client({ connectionString: writerUrl });
-    await client.connect();
+    console.log("Total batches:", totalBatches);
+    console.log("Batches:", batches);
+    console.log("Batch size:", batchSize);
+    console.log("Parallel:", parallel);
+    console.log("Count:", count);
 
-    const insertOneBatch = async (start: number, cnt: number) => {
+    const insertOneBatch = async (
+      client: Client,
+      start: number,
+      cnt: number,
+    ) => {
       await client.query("BEGIN");
       try {
         // Per-transaction fast settings
@@ -391,31 +398,33 @@ ON CONFLICT (id) DO NOTHING
       }
     };
 
-    const runWithConcurrency = async <T>(
-      items: T[],
-      concurrency: number,
-      worker: (item: T) => Promise<void>,
-    ) => {
-      const q = items.slice();
-      const n = Math.min(concurrency, q.length);
+    // True parallelism: each worker gets its own connection and processes batches
+    const runWithConcurrency = async () => {
+      const q = batches.slice();
+      const n = Math.min(parallel, q.length);
+
       await Promise.all(
         Array.from({ length: n }, async () => {
-          while (q.length) {
-            const item = q.shift()!;
-            await worker(item);
+          const client = new Client({ connectionString: writerUrl });
+          await client.connect();
+          try {
+            while (q.length) {
+              const batch = q.shift()!;
+              await insertOneBatch(client, batch.start, batch.count);
+            }
+          } finally {
+            try {
+              await client.end();
+            } catch {}
           }
         }),
       );
     };
 
     try {
-      await runWithConcurrency(batches, parallel, (b) =>
-        insertOneBatch(b.start, b.count),
-      );
+      await runWithConcurrency();
     } finally {
-      try {
-        await client.end();
-      } catch {}
+      // No need to end client here since each worker manages its own
     }
 
     // Backfill search in the background from cache (fast single UPDATE)
